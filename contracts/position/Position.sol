@@ -54,10 +54,9 @@ library Position {
     // @param sizeInTokens the position's size in tokens
     // @param collateralAmount the amount of collateralToken for collateral
     // @param borrowingFactor the position's borrowing factor
-    // @param fundingFeeAmountPerSize the position's funding fee per size
-    // @param longTokenClaimableFundingAmountPerSize the position's claimable funding amount per size
+    // @param longTokenFundingAmountPerSize the position's funding amount per size
     // for the market.longToken
-    // @param shortTokenClaimableFundingAmountPerSize the position's claimable funding amount per size
+    // @param shortTokenFundingAmountPerSize the position's funding amount per size
     // for the market.shortToken
     // @param increasedAtBlock the block at which the position was last increased
     // @param decreasedAtBlock the block at which the position was last decreased
@@ -66,9 +65,8 @@ library Position {
         uint256 sizeInTokens;
         uint256 collateralAmount;
         uint256 borrowingFactor;
-        uint256 fundingFeeAmountPerSize;
-        uint256 longTokenClaimableFundingAmountPerSize;
-        uint256 shortTokenClaimableFundingAmountPerSize;
+        int256 longTokenFundingAmountPerSize;
+        int256 shortTokenFundingAmountPerSize;
         uint256 increasedAtBlock;
         uint256 decreasedAtBlock;
     }
@@ -134,28 +132,20 @@ library Position {
         props.numbers.borrowingFactor = value;
     }
 
-    function fundingFeeAmountPerSize(Props memory props) internal pure returns (uint256) {
-        return props.numbers.fundingFeeAmountPerSize;
+    function longTokenFundingAmountPerSize(Props memory props) internal pure returns (int256) {
+        return props.numbers.longTokenFundingAmountPerSize;
     }
 
-    function setFundingFeeAmountPerSize(Props memory props, uint256 value) internal pure {
-        props.numbers.fundingFeeAmountPerSize = value;
+    function setLongTokenFundingAmountPerSize(Props memory props, int256 value) internal pure {
+        props.numbers.longTokenFundingAmountPerSize = value;
     }
 
-    function longTokenClaimableFundingAmountPerSize(Props memory props) internal pure returns (uint256) {
-        return props.numbers.longTokenClaimableFundingAmountPerSize;
+    function shortTokenFundingAmountPerSize(Props memory props) internal pure returns (int256) {
+        return props.numbers.shortTokenFundingAmountPerSize;
     }
 
-    function setLongTokenClaimableFundingAmountPerSize(Props memory props, uint256 value) internal pure {
-        props.numbers.longTokenClaimableFundingAmountPerSize = value;
-    }
-
-    function shortTokenClaimableFundingAmountPerSize(Props memory props) internal pure returns (uint256) {
-        return props.numbers.shortTokenClaimableFundingAmountPerSize;
-    }
-
-    function setShortTokenClaimableFundingAmountPerSize(Props memory props, uint256 value) internal pure {
-        props.numbers.shortTokenClaimableFundingAmountPerSize = value;
+    function setShortTokenFundingAmountPerSize(Props memory props, int256 value) internal pure {
+        props.numbers.shortTokenFundingAmountPerSize = value;
     }
 
     function increasedAtBlock(Props memory props) internal pure returns (uint256) {

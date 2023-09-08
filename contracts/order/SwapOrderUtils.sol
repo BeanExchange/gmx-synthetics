@@ -12,19 +12,13 @@ library SwapOrderUtils {
     using Order for Order.Props;
     using Array for uint256[];
 
-    using EventUtils for EventUtils.AddressItems;
-    using EventUtils for EventUtils.UintItems;
-    using EventUtils for EventUtils.IntItems;
-    using EventUtils for EventUtils.BoolItems;
-    using EventUtils for EventUtils.Bytes32Items;
-    using EventUtils for EventUtils.BytesItems;
-    using EventUtils for EventUtils.StringItems;
+    error UnexpectedMarket();
 
     // @dev process a swap order
     // @param params BaseOrderUtils.ExecuteOrderParams
-    function processOrder(BaseOrderUtils.ExecuteOrderParams memory params) external returns (EventUtils.EventLogData memory) {
+    function processOrder(BaseOrderUtils.ExecuteOrderParams memory params) external {
         if (params.order.market() != address(0)) {
-            revert Errors.UnexpectedMarket();
+            revert UnexpectedMarket();
         }
 
         validateOracleBlockNumbers(
@@ -34,27 +28,20 @@ library SwapOrderUtils {
             params.order.updatedAtBlock()
         );
 
-        (address outputToken, uint256 outputAmount) = SwapUtils.swap(SwapUtils.SwapParams(
+        SwapUtils.swap(SwapUtils.SwapParams(
             params.contracts.dataStore,
             params.contracts.eventEmitter,
             params.contracts.oracle,
             params.contracts.orderVault,
-            params.key,
             params.order.initialCollateralToken(),
             params.order.initialCollateralDeltaAmount(),
             params.swapPathMarkets,
             params.order.minOutputAmount(),
             params.order.receiver(),
-            params.order.uiFeeReceiver(),
             params.order.shouldUnwrapNativeToken()
         ));
 
-        EventUtils.EventLogData memory eventData;
-        eventData.addressItems.initItems(1);
-        eventData.addressItems.setItem(0, "outputToken", outputToken);
-        eventData.uintItems.initItems(1);
-        eventData.uintItems.setItem(0, "outputAmount", outputAmount);
-        return eventData;
+        OrderStoreUtils.remove(params.contracts.dataStore, params.key, params.order.account());
     }
 
     // @dev validate the oracle block numbers used for the prices in the oracle
@@ -77,12 +64,12 @@ library SwapOrderUtils {
         }
 
         if (orderType == Order.OrderType.LimitSwap) {
-            if (!minOracleBlockNumbers.areGreaterThanOrEqualTo(orderUpdatedAtBlock)) {
-                revert Errors.OracleBlockNumbersAreSmallerThanRequired(minOracleBlockNumbers, orderUpdatedAtBlock);
+            if (!minOracleBlockNumbers.areGreaterThan(orderUpdatedAtBlock)) {
+                OracleUtils.revertOracleBlockNumbersAreSmallerThanRequired(minOracleBlockNumbers, orderUpdatedAtBlock);
             }
             return;
         }
 
-        revert Errors.UnsupportedOrderType();
+        BaseOrderUtils.revertUnsupportedOrderType();
     }
 }

@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "../utils/EnumerableValues.sol";
 import "./Role.sol";
-import "../error/Errors.sol";
 
 /**
  * @title RoleStore
@@ -24,9 +23,12 @@ contract RoleStore {
     // vs calling roleMembers[key].contains(account)
     mapping(address => mapping (bytes32 => bool)) roleCache;
 
+    error Unauthorized(address msgSender, string role);
+    error ThereMustBeAtLeastOneRoleAdmin();
+
     modifier onlyRoleAdmin() {
         if (!hasRole(msg.sender, Role.ROLE_ADMIN)) {
-            revert Errors.Unauthorized(msg.sender, "ROLE_ADMIN");
+            revert Unauthorized(msg.sender, "ROLE_ADMIN");
         }
         _;
     }
@@ -39,31 +41,31 @@ contract RoleStore {
      * @dev Grants the specified role to the given account.
      *
      * @param account The address of the account.
-     * @param roleKey The key of the role to grant.
+     * @param key The key of the role to grant.
      */
-    function grantRole(address account, bytes32 roleKey) external onlyRoleAdmin {
-        _grantRole(account, roleKey);
+    function grantRole(address account, bytes32 key) external onlyRoleAdmin {
+        _grantRole(account, key);
     }
 
     /**
      * @dev Revokes the specified role from the given account.
      *
      * @param account The address of the account.
-     * @param roleKey The key of the role to revoke.
+     * @param key The key of the role to revoke.
      */
-    function revokeRole(address account, bytes32 roleKey) external onlyRoleAdmin {
-        _revokeRole(account, roleKey);
+    function revokeRole(address account, bytes32 key) external onlyRoleAdmin {
+        _revokeRole(account, key);
     }
 
     /**
      * @dev Returns true if the given account has the specified role.
      *
      * @param account The address of the account.
-     * @param roleKey The key of the role.
+     * @param key The key of the role.
      * @return True if the account has the role, false otherwise.
      */
-    function hasRole(address account, bytes32 roleKey) public view returns (bool) {
-        return roleCache[account][roleKey];
+    function hasRole(address account, bytes32 key) public view returns (bool) {
+        return roleCache[account][key];
     }
 
     /**
@@ -89,42 +91,37 @@ contract RoleStore {
     /**
      * @dev Returns the number of members of the specified role.
      *
-     * @param roleKey The key of the role.
+     * @param key The key of the role.
      * @return The number of members of the role.
      */
-    function getRoleMemberCount(bytes32 roleKey) external view returns (uint256) {
-        return roleMembers[roleKey].length();
+    function getRoleMemberCount(bytes32 key) external view returns (uint256) {
+        return roleMembers[key].length();
     }
 
     /**
      * @dev Returns the members of the specified role.
      *
-     * @param roleKey The key of the role.
+     * @param key The key of the role.
      * @param start the start index, the value for this index will be included.
      * @param end the end index, the value for this index will not be included.
      * @return The members of the role.
      */
-    function getRoleMembers(bytes32 roleKey, uint256 start, uint256 end) external view returns (address[] memory) {
-        return roleMembers[roleKey].valuesAt(start, end);
+    function getRoleMembers(bytes32 key, uint256 start, uint256 end) external view returns (address[] memory) {
+        return roleMembers[key].valuesAt(start, end);
     }
 
-    function _grantRole(address account, bytes32 roleKey) internal {
-        roles.add(roleKey);
-        roleMembers[roleKey].add(account);
-        roleCache[account][roleKey] = true;
+    function _grantRole(address account, bytes32 key) internal {
+        roles.add(key);
+        roleMembers[key].add(account);
+        roleCache[account][key] = true;
     }
 
-    function _revokeRole(address account, bytes32 roleKey) internal {
-        roleMembers[roleKey].remove(account);
-        roleCache[account][roleKey] = false;
+    function _revokeRole(address account, bytes32 key) internal {
+        roleMembers[key].remove(account);
+        roleCache[account][key] = false;
 
-        if (roleMembers[roleKey].length() == 0) {
-            if (roleKey == Role.ROLE_ADMIN) {
-                revert Errors.ThereMustBeAtLeastOneRoleAdmin();
-            }
-            if (roleKey == Role.TIMELOCK_MULTISIG) {
-                revert Errors.ThereMustBeAtLeastOneTimelockMultiSig();
-            }
+        if (key == Role.ROLE_ADMIN && roleMembers[key].length() == 0) {
+            revert ThereMustBeAtLeastOneRoleAdmin();
         }
     }
 }

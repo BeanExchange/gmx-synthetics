@@ -9,6 +9,7 @@ const constructorContracts = [
   "DepositHandler",
   "WithdrawalHandler",
   "OrderHandler",
+  "ReferralStorage",
 ];
 
 const func = createDeployFunction({
@@ -18,14 +19,11 @@ const func = createDeployFunction({
     return constructorContracts.map((dependencyName) => dependencyContracts[dependencyName].address);
   },
   libraryNames: [
-    "CallbackUtils",
     "DepositStoreUtils",
-    "FeeUtils",
-    "MarketEventUtils",
-    "MarketStoreUtils",
-    "OrderStoreUtils",
-    "ReferralUtils",
     "WithdrawalStoreUtils",
+    "OrderStoreUtils",
+    "MarketEventUtils",
+    "ReferralEventUtils",
   ],
   afterDeploy: async ({ deployedContract }) => {
     await grantRoleIfNotGranted(deployedContract.address, "CONTROLLER");

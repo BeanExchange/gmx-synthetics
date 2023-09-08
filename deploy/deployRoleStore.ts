@@ -3,13 +3,9 @@ import { createDeployFunction } from "../utils/deploy";
 
 const func = createDeployFunction({
   contractName: "RoleStore",
-  id: "RoleStore_3",
-  afterDeploy: async ({ gmx }) => {
-    const rolesConfig = await gmx.getRoles();
-    for (const { account, roles } of rolesConfig) {
-      for (const role of roles) {
-        await grantRoleIfNotGranted(account, role);
-      }
+  afterDeploy: async ({ deployer }) => {
+    for (const role of ["CONTROLLER", "ORDER_KEEPER", "MARKET_KEEPER", "FROZEN_ORDER_KEEPER"]) {
+      await grantRoleIfNotGranted(deployer, role);
     }
   },
 });

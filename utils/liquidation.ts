@@ -1,7 +1,6 @@
 import { bigNumberify, expandDecimals } from "./math";
 import { executeWithOracleParams } from "./exchange";
 import { TOKEN_ORACLE_TYPES } from "./oracle";
-import { parseLogs } from "./event";
 
 export async function executeLiquidation(fixture, overrides) {
   const { wnt, usdc } = fixture.contracts;
@@ -34,14 +33,5 @@ export async function executeLiquidation(fixture, overrides) {
     gasUsageLabel,
   };
 
-  const txReceipt = await executeWithOracleParams(fixture, params);
-  const logs = parseLogs(fixture, txReceipt);
-
-  const result = { txReceipt, logs };
-
-  if (overrides.afterExecution) {
-    await overrides.afterExecution(result);
-  }
-
-  return result;
+  await executeWithOracleParams(fixture, params);
 }

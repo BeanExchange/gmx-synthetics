@@ -6,14 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-import "../exchange/IDepositHandler.sol";
-import "../exchange/IWithdrawalHandler.sol";
-import "../exchange/IOrderHandler.sol";
+import "../exchange/DepositHandler.sol";
+import "../exchange/WithdrawalHandler.sol";
+import "../exchange/OrderHandler.sol";
 
 import "../utils/PayableMulticall.sol";
-import "../utils/AccountUtils.sol";
-
-import "../feature/FeatureUtils.sol";
+import "../utils/ReceiverUtils.sol";
 
 import "./Router.sol";
 
@@ -64,20 +62,26 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
     Router public immutable router;
     DataStore public immutable dataStore;
     EventEmitter public immutable eventEmitter;
-    IDepositHandler public immutable depositHandler;
-    IWithdrawalHandler public immutable withdrawalHandler;
-    IOrderHandler public immutable orderHandler;
+    DepositHandler public immutable depositHandler;
+    WithdrawalHandler public immutable withdrawalHandler;
+    OrderHandler public immutable orderHandler;
+    IReferralStorage public immutable referralStorage;
+
+    error InvalidClaimFundingFeesInput(uint256 marketsLength, uint256 tokensLength);
+    error InvalidClaimCollateralInput(uint256 marketsLength, uint256 tokensLength, uint256 timeKeysLength);
+    error InvalidClaimAffiliateRewardsInput(uint256 marketsLength, uint256 tokensLength);
 
     // @dev Constructor that initializes the contract with the provided Router, RoleStore, DataStore,
-    // EventEmitter, IDepositHandler, IWithdrawalHandler, IOrderHandler, and OrderStore instances
+    // EventEmitter, DepositHandler, WithdrawalHandler, OrderHandler, OrderStore, and IReferralStorage instances
     constructor(
         Router _router,
         RoleStore _roleStore,
         DataStore _dataStore,
         EventEmitter _eventEmitter,
-        IDepositHandler _depositHandler,
-        IWithdrawalHandler _withdrawalHandler,
-        IOrderHandler _orderHandler
+        DepositHandler _depositHandler,
+        WithdrawalHandler _withdrawalHandler,
+        OrderHandler _orderHandler,
+        IReferralStorage _referralStorage
     ) RoleModule(_roleStore) {
         router = _router;
         dataStore = _dataStore;
@@ -86,17 +90,19 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
         depositHandler = _depositHandler;
         withdrawalHandler = _withdrawalHandler;
         orderHandler = _orderHandler;
+
+        referralStorage = _referralStorage;
     }
 
     // @dev Wraps the specified amount of native tokens into WNT then sends the WNT to the specified address
     function sendWnt(address receiver, uint256 amount) external payable nonReentrant {
-        AccountUtils.validateReceiver(receiver);
+        ReceiverUtils.validateReceiver(receiver);
         TokenUtils.depositAndSendWrappedNativeToken(dataStore, receiver, amount);
     }
 
     // @dev Sends the given amount of tokens to the given address
     function sendTokens(address token, address receiver, uint256 amount) external payable nonReentrant {
-        AccountUtils.validateReceiver(receiver);
+        ReceiverUtils.validateReceiver(receiver);
         address account = msg.sender;
         router.pluginTransfer(token, account, receiver, amount);
     }
@@ -123,15 +129,11 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
 
     function cancelDeposit(bytes32 key) external payable nonReentrant {
         Deposit.Props memory deposit = DepositStoreUtils.get(dataStore, key);
-        if (deposit.account() == address(0)) {
-            revert Errors.EmptyDeposit();
-        }
-
         if (deposit.account() != msg.sender) {
-            revert Errors.Unauthorized(msg.sender, "account for cancelDeposit");
+            revert Unauthorized(msg.sender, "account for cancelDeposit");
         }
 
-        depositHandler.cancelDeposit(key);
+        depositHandler.cancelDeposit(key, deposit);
     }
 
     /**
@@ -155,40 +157,29 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
     function cancelWithdrawal(bytes32 key) external payable nonReentrant {
         Withdrawal.Props memory withdrawal = WithdrawalStoreUtils.get(dataStore, key);
         if (withdrawal.account() != msg.sender) {
-            revert Errors.Unauthorized(msg.sender, "account for cancelWithdrawal");
+            revert Unauthorized(msg.sender, "account for cancelWithdrawal");
         }
 
-        withdrawalHandler.cancelWithdrawal(key);
+        withdrawalHandler.cancelWithdrawal(key, withdrawal);
     }
 
     /**
-     * @dev Creates a new order with the given amount, order parameters. The order is
+     * @dev Creates a new order with the given amount, order parameters, and referral code. The order is
      * created by transferring the specified amount of collateral tokens from the caller's account to the
      * order store, and then calling the `createOrder()` function on the order handler contract. The
      * referral code is also set on the caller's account using the referral storage contract.
      */
     function createOrder(
-        BaseOrderUtils.CreateOrderParams calldata params
+        BaseOrderUtils.CreateOrderParams calldata params,
+        bytes32 referralCode
     ) external payable nonReentrant returns (bytes32) {
         address account = msg.sender;
+
+        ReferralUtils.setTraderReferralCode(referralStorage, account, referralCode);
 
         return orderHandler.createOrder(
             account,
             params
-        );
-    }
-
-    function setSavedCallbackContract(
-        address market,
-        address callbackContract
-    ) external payable nonReentrant {
-        // save the callback contract based on the account and market so that
-        // it can be called on liquidations and ADLs
-        CallbackUtils.setSavedCallbackContract(
-            dataStore,
-            msg.sender, // account
-            market,
-            callbackContract
         );
     }
 
@@ -235,7 +226,7 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
     ) external payable nonReentrant {
         Order.Props memory order = OrderStoreUtils.get(dataStore, key);
         if (order.account() != msg.sender) {
-            revert Errors.Unauthorized(msg.sender, "account for updateOrder");
+            revert Unauthorized(msg.sender, "account for updateOrder");
         }
 
         orderHandler.updateOrder(
@@ -259,15 +250,11 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
      */
     function cancelOrder(bytes32 key) external payable nonReentrant {
         Order.Props memory order = OrderStoreUtils.get(dataStore, key);
-        if (order.account() == address(0)) {
-            revert Errors.EmptyOrder();
-        }
-
         if (order.account() != msg.sender) {
-            revert Errors.Unauthorized(msg.sender, "account for cancelOrder");
+            revert Unauthorized(msg.sender, "account for cancelOrder");
         }
 
-        orderHandler.cancelOrder(key);
+        orderHandler.cancelOrder(key, order);
     }
 
     /**
@@ -284,21 +271,17 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
         address[] memory markets,
         address[] memory tokens,
         address receiver
-    ) external payable nonReentrant returns (uint256[] memory) {
+    ) external payable nonReentrant {
         if (markets.length != tokens.length) {
-            revert Errors.InvalidClaimFundingFeesInput(markets.length, tokens.length);
+            revert InvalidClaimFundingFeesInput(markets.length, tokens.length);
         }
 
-        FeatureUtils.validateFeature(dataStore, Keys.claimFundingFeesFeatureDisabledKey(address(this)));
-
-        AccountUtils.validateReceiver(receiver);
+        ReceiverUtils.validateReceiver(receiver);
 
         address account = msg.sender;
 
-        uint256[] memory claimedAmounts = new uint256[](markets.length);
-
-        for (uint256 i; i < markets.length; i++) {
-            claimedAmounts[i] = MarketUtils.claimFundingFees(
+        for (uint256 i = 0; i < markets.length; i++) {
+            MarketUtils.claimFundingFees(
                 dataStore,
                 eventEmitter,
                 markets[i],
@@ -307,8 +290,6 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
                 receiver
             );
         }
-
-        return claimedAmounts;
     }
 
     function claimCollateral(
@@ -316,21 +297,17 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
         address[] memory tokens,
         uint256[] memory timeKeys,
         address receiver
-    ) external payable nonReentrant returns (uint256[] memory) {
+    ) external payable nonReentrant {
         if (markets.length != tokens.length || tokens.length != timeKeys.length) {
-            revert Errors.InvalidClaimCollateralInput(markets.length, tokens.length, timeKeys.length);
+            revert InvalidClaimCollateralInput(markets.length, tokens.length, timeKeys.length);
         }
 
-        FeatureUtils.validateFeature(dataStore, Keys.claimCollateralFeatureDisabledKey(address(this)));
-
-        AccountUtils.validateReceiver(receiver);
+        ReceiverUtils.validateReceiver(receiver);
 
         address account = msg.sender;
 
-        uint256[] memory claimedAmounts = new uint256[](markets.length);
-
-        for (uint256 i; i < markets.length; i++) {
-            claimedAmounts[i] = MarketUtils.claimCollateral(
+        for (uint256 i = 0; i < markets.length; i++) {
+            MarketUtils.claimCollateral(
                 dataStore,
                 eventEmitter,
                 markets[i],
@@ -340,8 +317,6 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
                 receiver
             );
         }
-
-        return claimedAmounts;
     }
 
     /**
@@ -358,19 +333,15 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
         address[] memory markets,
         address[] memory tokens,
         address receiver
-    ) external payable nonReentrant returns (uint256[] memory) {
+    ) external payable nonReentrant {
         if (markets.length != tokens.length) {
-            revert Errors.InvalidClaimAffiliateRewardsInput(markets.length, tokens.length);
+            revert InvalidClaimAffiliateRewardsInput(markets.length, tokens.length);
         }
-
-        FeatureUtils.validateFeature(dataStore, Keys.claimAffiliateRewardsFeatureDisabledKey(address(this)));
 
         address account = msg.sender;
 
-        uint256[] memory claimedAmounts = new uint256[](markets.length);
-
-        for (uint256 i; i < markets.length; i++) {
-            claimedAmounts[i] = ReferralUtils.claimAffiliateReward(
+        for (uint256 i = 0; i < markets.length; i++) {
+            ReferralUtils.claimAffiliateReward(
                 dataStore,
                 eventEmitter,
                 markets[i],
@@ -379,41 +350,5 @@ contract ExchangeRouter is ReentrancyGuard, PayableMulticall, RoleModule {
                 receiver
             );
         }
-
-        return claimedAmounts;
-    }
-
-    function setUiFeeFactor(uint256 uiFeeFactor) external payable nonReentrant {
-        address account = msg.sender;
-        MarketUtils.setUiFeeFactor(dataStore, eventEmitter, account, uiFeeFactor);
-    }
-
-    function claimUiFees(
-        address[] memory markets,
-        address[] memory tokens,
-        address receiver
-    ) external payable nonReentrant returns (uint256[] memory) {
-        if (markets.length != tokens.length) {
-            revert Errors.InvalidClaimUiFeesInput(markets.length, tokens.length);
-        }
-
-        FeatureUtils.validateFeature(dataStore, Keys.claimUiFeesFeatureDisabledKey(address(this)));
-
-        address uiFeeReceiver = msg.sender;
-
-        uint256[] memory claimedAmounts = new uint256[](markets.length);
-
-        for (uint256 i; i < markets.length; i++) {
-            claimedAmounts[i] = FeeUtils.claimUiFees(
-                dataStore,
-                eventEmitter,
-                uiFeeReceiver,
-                markets[i],
-                tokens[i],
-                receiver
-            );
-        }
-
-        return claimedAmounts;
     }
 }

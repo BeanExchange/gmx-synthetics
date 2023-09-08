@@ -3,7 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "../utils/GlobalReentrancyGuard.sol";
-import "../error/ErrorUtils.sol";
+import "../utils/ErrorUtils.sol";
 
 import "./ExchangeUtils.sol";
 import "../role/RoleModule.sol";
@@ -19,11 +19,9 @@ import "../withdrawal/WithdrawalUtils.sol";
 import "../oracle/Oracle.sol";
 import "../oracle/OracleModule.sol";
 
-import "./IWithdrawalHandler.sol";
-
 // @title WithdrawalHandler
 // @dev Contract to handle creation, execution and cancellation of withdrawals
-contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleModule, OracleModule {
+contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
     using Withdrawal for Withdrawal.Props;
 
     EventEmitter public immutable eventEmitter;
@@ -48,7 +46,7 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
     function createWithdrawal(
         address account,
         WithdrawalUtils.CreateWithdrawalParams calldata params
-    ) external override globalNonReentrant onlyController returns (bytes32) {
+    ) external globalNonReentrant onlyController returns (bytes32) {
         FeatureUtils.validateFeature(dataStore, Keys.createWithdrawalFeatureDisabledKey(address(this)));
 
         return WithdrawalUtils.createWithdrawal(
@@ -60,13 +58,13 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
         );
     }
 
-    // @dev cancels a withdrawal
-    // @param key the withdrawal key
-    function cancelWithdrawal(bytes32 key) external override globalNonReentrant onlyController {
+    function cancelWithdrawal(
+        bytes32 key,
+        Withdrawal.Props memory withdrawal
+    ) external globalNonReentrant onlyController {
         uint256 startingGas = gasleft();
 
         DataStore _dataStore = dataStore;
-        Withdrawal.Props memory withdrawal = WithdrawalStoreUtils.get(_dataStore, key);
 
         FeatureUtils.validateFeature(_dataStore, Keys.cancelWithdrawalFeatureDisabledKey(address(this)));
 
@@ -101,12 +99,12 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
         withOraclePrices(oracle, dataStore, eventEmitter, oracleParams)
     {
         uint256 startingGas = gasleft();
-        uint256 executionGas = GasUtils.getExecutionGas(dataStore, startingGas);
 
-        try this._executeWithdrawal{ gas: executionGas }(
+        try this._executeWithdrawal(
             key,
             oracleParams,
-            msg.sender
+            msg.sender,
+            startingGas
         ) {
         } catch (bytes memory reasonBytes) {
             _handleWithdrawalError(
@@ -117,25 +115,23 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
         }
     }
 
-    // @dev simulate execution of a withdrawal to check for any errors
-    // @param key the withdrawal key
-    // @param params OracleUtils.SimulatePricesParams
     function simulateExecuteWithdrawal(
         bytes32 key,
         OracleUtils.SimulatePricesParams memory params
     ) external
-        override
         onlyController
         withSimulatedOraclePrices(oracle, params)
         globalNonReentrant
     {
 
+        uint256 startingGas = gasleft();
         OracleUtils.SetPricesParams memory oracleParams;
 
         this._executeWithdrawal(
             key,
             oracleParams,
-            msg.sender
+            msg.sender,
+            startingGas
         );
     }
 
@@ -146,10 +142,9 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
     function _executeWithdrawal(
         bytes32 key,
         OracleUtils.SetPricesParams memory oracleParams,
-        address keeper
+        address keeper,
+        uint256 startingGas
     ) external onlySelf {
-        uint256 startingGas = gasleft();
-
         FeatureUtils.validateFeature(dataStore, Keys.executeWithdrawalFeatureDisabledKey(address(this)));
 
         uint256[] memory minOracleBlockNumbers = OracleUtils.getUncompactedOracleBlockNumbers(
@@ -182,17 +177,13 @@ contract WithdrawalHandler is IWithdrawalHandler, GlobalReentrancyGuard, RoleMod
         uint256 startingGas,
         bytes memory reasonBytes
     ) internal {
+        (string memory reason, /* bool hasRevertMessage */) = ErrorUtils.getRevertMessage(reasonBytes);
+
         bytes4 errorSelector = ErrorUtils.getErrorSelectorFromData(reasonBytes);
 
-        if (
-            OracleUtils.isOracleError(errorSelector) ||
-            errorSelector == Errors.DisabledFeature.selector
-        ) {
-
+        if (OracleUtils.isEmptyPriceError(errorSelector)) {
             ErrorUtils.revertWithCustomError(reasonBytes);
         }
-
-        (string memory reason, /* bool hasRevertMessage */) = ErrorUtils.getRevertMessage(reasonBytes);
 
         WithdrawalUtils.cancelWithdrawal(
             dataStore,

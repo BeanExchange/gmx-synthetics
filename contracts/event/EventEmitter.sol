@@ -3,6 +3,11 @@
 pragma solidity ^0.8.0;
 
 import "../role/RoleModule.sol";
+import "../order/Order.sol";
+import "../deposit/Deposit.sol";
+import "../withdrawal/Withdrawal.sol";
+import "../pricing/SwapPricingUtils.sol";
+import "../pricing/PositionPricingUtils.sol";
 import "./EventUtils.sol";
 
 // @title EventEmitter
@@ -14,23 +19,23 @@ import "./EventUtils.sol";
 contract EventEmitter is RoleModule {
     event EventLog(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         EventUtils.EventLogData eventData
     );
 
     event EventLog1(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         bytes32 indexed topic1,
         EventUtils.EventLogData eventData
     );
 
     event EventLog2(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         bytes32 indexed topic1,
         bytes32 indexed topic2,
         EventUtils.EventLogData eventData
@@ -38,9 +43,6 @@ contract EventEmitter is RoleModule {
 
     constructor(RoleStore _roleStore) RoleModule(_roleStore) {}
 
-    // @dev emit a general event log
-    // @param eventName the name of the event
-    // @param eventData the event data
     function emitEventLog(
         string memory eventName,
         EventUtils.EventLogData memory eventData
@@ -53,10 +55,6 @@ contract EventEmitter is RoleModule {
         );
     }
 
-    // @dev emit a general event log
-    // @param eventName the name of the event
-    // @param topic1 topic1 for indexing
-    // @param eventData the event data
     function emitEventLog1(
         string memory eventName,
         bytes32 topic1,
@@ -71,11 +69,6 @@ contract EventEmitter is RoleModule {
         );
     }
 
-    // @dev emit a general event log
-    // @param eventName the name of the event
-    // @param topic1 topic1 for indexing
-    // @param topic2 topic2 for indexing
-    // @param eventData the event data
     function emitEventLog2(
         string memory eventName,
         bytes32 topic1,

@@ -7,10 +7,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "../role/RoleModule.sol";
 import "../event/EventEmitter.sol";
 import "../utils/BasicMulticall.sol";
-import "../oracle/OracleStore.sol";
-import "../data/DataStore.sol";
-import "../data/Keys.sol";
-import "../chain/Chain.sol";
 
 // @title Timelock
 contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
@@ -26,122 +22,51 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
 
     DataStore public immutable dataStore;
     EventEmitter public immutable eventEmitter;
-    OracleStore public immutable oracleStore;
     uint256 public timelockDelay;
 
-    mapping (bytes32 => uint256) public pendingActions;
+    error ActionAlreadySignalled();
+    error ActionNotSignalled();
+    error SignalTimeNotYetPassed(uint256 signalTime);
+    error InvalidTimelockDelay(uint256 timelockDelay);
+    error MaxTimelockDelayExceeded(uint256 timelockDelay);
+    error InvalidFeeReceiver(address receiver);
 
     constructor(
         RoleStore _roleStore,
         DataStore _dataStore,
         EventEmitter _eventEmitter,
-        OracleStore _oracleStore,
         uint256 _timelockDelay
     ) RoleModule(_roleStore) {
         dataStore = _dataStore;
         eventEmitter = _eventEmitter;
-        oracleStore = _oracleStore;
         timelockDelay = _timelockDelay;
-
-        _validateTimelockDelay();
     }
 
-    // @dev immediately revoke the role of an account
-    // @param account the account to revoke the role for
-    // @param roleKey the role to revoke
-    function revokeRole(address account, bytes32 roleKey) external onlyTimelockMultisig nonReentrant {
-        roleStore.revokeRole(account, roleKey);
+    mapping (bytes32 => uint256) public pendingActions;
+
+    function revokeRole(address account, bytes32 key) external onlyTimelockMultisig nonReentrant {
+        roleStore.revokeRole(account, key);
     }
 
-    // @dev increase the timelock delay
-    // @param the new timelock delay
     function increaseTimelockDelay(uint256 _timelockDelay) external onlyTimelockAdmin nonReentrant {
         if (_timelockDelay <= timelockDelay) {
-            revert Errors.InvalidTimelockDelay(_timelockDelay);
+            revert InvalidTimelockDelay(_timelockDelay);
+        }
+
+        if (_timelockDelay > MAX_TIMELOCK_DELAY) {
+            revert MaxTimelockDelayExceeded(_timelockDelay);
         }
 
         timelockDelay = _timelockDelay;
-
-        _validateTimelockDelay();
     }
 
-    function signalAddOracleSigner(address account) external onlyTimelockAdmin nonReentrant {
-        if (account == address(0)) {
-            revert Errors.InvalidOracleSigner(account);
-        }
-
-        bytes32 actionKey = _addOracleSignerActionKey(account);
-        _signalPendingAction(actionKey, "addOracleSigner");
-
-        EventUtils.EventLogData memory eventData;
-        eventData.addressItems.initItems(1);
-        eventData.addressItems.setItem(0, "account", account);
-        eventEmitter.emitEventLog1(
-            "SignalAddOracleSigner",
-            actionKey,
-            eventData
-        );
-    }
-
-    function addOracleSignerAfterSignal(address account) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _addOracleSignerActionKey(account);
-        _validateAndClearAction(actionKey, "addOracleSigner");
-
-        oracleStore.addSigner(account);
-
-        EventUtils.EventLogData memory eventData;
-        eventData.addressItems.initItems(1);
-        eventData.addressItems.setItem(0, "account", account);
-        eventEmitter.emitEventLog1(
-            "AddOracleSigner",
-            actionKey,
-            eventData
-        );
-    }
-
-    function signalRemoveOracleSigner(address account) external onlyTimelockAdmin nonReentrant {
-        if (account == address(0)) {
-            revert Errors.InvalidOracleSigner(account);
-        }
-
-        bytes32 actionKey = _removeOracleSignerActionKey(account);
-        _signalPendingAction(actionKey, "removeOracleSigner");
-
-        EventUtils.EventLogData memory eventData;
-        eventData.addressItems.initItems(1);
-        eventData.addressItems.setItem(0, "account", account);
-        eventEmitter.emitEventLog1(
-            "SignalRemoveOracleSigner",
-            actionKey,
-            eventData
-        );
-    }
-
-    function removeOracleSignerAfterSignal(address account) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _removeOracleSignerActionKey(account);
-        _validateAndClearAction(actionKey, "removeOracleSigner");
-
-        oracleStore.removeSigner(account);
-
-        EventUtils.EventLogData memory eventData;
-        eventData.addressItems.initItems(1);
-        eventData.addressItems.setItem(0, "account", account);
-        eventEmitter.emitEventLog1(
-            "RemoveOracleSigner",
-            actionKey,
-            eventData
-        );
-    }
-
-    // @dev signal setting of the fee receiver
-    // @param account the new fee receiver
     function signalSetFeeReceiver(address account) external onlyTimelockAdmin nonReentrant {
         if (account == address(0)) {
-            revert Errors.InvalidFeeReceiver(account);
+            revert InvalidFeeReceiver(account);
         }
 
-        bytes32 actionKey = _setFeeReceiverActionKey(account);
-        _signalPendingAction(actionKey, "setFeeReceiver");
+        bytes32 actionKey = keccak256(abi.encodePacked("setFeeReceiver", account));
+        _signalPendingAction(actionKey, "signalSetFeeReceiver");
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(1);
@@ -153,11 +78,9 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev set the fee receiver
-    // @param account the new fee receiver
     function setFeeReceiverAfterSignal(address account) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _setFeeReceiverActionKey(account);
-        _validateAndClearAction(actionKey, "setFeeReceiver");
+        bytes32 actionKey = keccak256(abi.encodePacked("setFeeReceiver", account));
+        _validateAndClearAction(actionKey, "setFeeReceiverAfterSignal");
 
         dataStore.setAddress(Keys.FEE_RECEIVER, account);
 
@@ -171,18 +94,15 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev signal granting of a role
-    // @param account the account to grant the role
-    // @param roleKey the role to grant
-    function signalGrantRole(address account, bytes32 roleKey) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _grantRoleActionKey(account, roleKey);
-        _signalPendingAction(actionKey, "grantRole");
+    function signalGrantRole(address account, bytes32 key) external onlyTimelockAdmin nonReentrant {
+        bytes32 actionKey = keccak256(abi.encodePacked("grantRole", account, key));
+        _signalPendingAction(actionKey, "signalGrantRole");
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(1);
         eventData.addressItems.setItem(0, "account", account);
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "roleKey", roleKey);
+        eventData.bytes32Items.setItem(0, "key", key);
         eventEmitter.emitEventLog1(
             "SignalGrantRole",
             actionKey,
@@ -190,20 +110,17 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev grant a role
-    // @param account the account to grant the role
-    // @param roleKey the role to grant
-    function grantRoleAfterSignal(address account, bytes32 roleKey) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _grantRoleActionKey(account, roleKey);
-        _validateAndClearAction(actionKey, "grantRole");
+    function grantRoleAfterSignal(address account, bytes32 key) external onlyTimelockAdmin nonReentrant {
+        bytes32 actionKey = keccak256(abi.encodePacked("grantRole", account, key));
+        _validateAndClearAction(actionKey, "grantRoleAfterSignal");
 
-        roleStore.grantRole(account, roleKey);
+        roleStore.grantRole(account, key);
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(1);
         eventData.addressItems.setItem(0, "account", account);
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "roleKey", roleKey);
+        eventData.bytes32Items.setItem(0, "key", key);
         eventEmitter.emitEventLog1(
             "GrantRole",
             actionKey,
@@ -211,18 +128,15 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev signal revoking of a role
-    // @param account the account to revoke the role for
-    // @param roleKey the role to revoke
-    function signalRevokeRole(address account, bytes32 roleKey) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _revokeRoleActionKey(account, roleKey);
-        _signalPendingAction(actionKey, "revokeRole");
+    function signalRevokeRole(address account, bytes32 key) external onlyTimelockAdmin nonReentrant {
+        bytes32 actionKey = keccak256(abi.encodePacked("revokeRole", account, key));
+        _signalPendingAction(actionKey, "signalRevokeRole");
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(1);
         eventData.addressItems.setItem(0, "account", account);
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "roleKey", roleKey);
+        eventData.bytes32Items.setItem(0, "key", key);
         eventEmitter.emitEventLog1(
             "SignalRevokeRole",
             actionKey,
@@ -230,20 +144,17 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev revoke a role
-    // @param account the account to revoke the role for
-    // @param roleKey the role to revoke
-    function revokeRoleAfterSignal(address account, bytes32 roleKey) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _revokeRoleActionKey(account, roleKey);
-        _validateAndClearAction(actionKey, "revokeRole");
+    function revokeRoleAfterSignal(address account, bytes32 key) external onlyTimelockAdmin nonReentrant {
+        bytes32 actionKey = keccak256(abi.encodePacked("revokeRole", account, key));
+        _validateAndClearAction(actionKey, "revokeRoleAfterSignal");
 
-        roleStore.revokeRole(account, roleKey);
+        roleStore.revokeRole(account, key);
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(1);
         eventData.addressItems.setItem(0, "account", account);
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "roleKey", roleKey);
+        eventData.bytes32Items.setItem(0, "key", key);
         eventEmitter.emitEventLog1(
             "RevokeRole",
             actionKey,
@@ -251,36 +162,29 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev signal setting of a price feed
-    // @param token the token to set the price feed for
-    // @param priceFeed the address of the price feed
-    // @param priceFeedMultiplier the multiplier to apply to the price feed results
-    // @param stablePrice the stable price to set a range for the price feed results
     function signalSetPriceFeed(
         address token,
         address priceFeed,
         uint256 priceFeedMultiplier,
-        uint256 priceFeedHeartbeatDuration,
         uint256 stablePrice
     ) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _setPriceFeedActionKey(
+        bytes32 actionKey = keccak256(abi.encodePacked(
+            "signalSetPriceFeed",
             token,
             priceFeed,
             priceFeedMultiplier,
-            priceFeedHeartbeatDuration,
             stablePrice
-        );
+        ));
 
-        _signalPendingAction(actionKey, "setPriceFeed");
+        _signalPendingAction(actionKey, "signalSetPriceFeed");
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(2);
         eventData.addressItems.setItem(0, "token", token);
         eventData.addressItems.setItem(1, "priceFeed", priceFeed);
-        eventData.uintItems.initItems(3);
+        eventData.uintItems.initItems(2);
         eventData.uintItems.setItem(0, "priceFeedMultiplier", priceFeedMultiplier);
-        eventData.uintItems.setItem(1, "priceFeedHeartbeatDuration", priceFeedHeartbeatDuration);
-        eventData.uintItems.setItem(2, "stablePrice", stablePrice);
+        eventData.uintItems.setItem(1, "stablePrice", stablePrice);
         eventEmitter.emitEventLog1(
             "SignalSetPriceFeed",
             actionKey,
@@ -288,41 +192,33 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev sets a price feed
-    // @param token the token to set the price feed for
-    // @param priceFeed the address of the price feed
-    // @param priceFeedMultiplier the multiplier to apply to the price feed results
-    // @param stablePrice the stable price to set a range for the price feed results
     function setPriceFeedAfterSignal(
         address token,
         address priceFeed,
         uint256 priceFeedMultiplier,
-        uint256 priceFeedHeartbeatDuration,
         uint256 stablePrice
     ) external onlyTimelockAdmin nonReentrant {
-        bytes32 actionKey = _setPriceFeedActionKey(
+        bytes32 actionKey = keccak256(abi.encodePacked(
+            "signalSetPriceFeed",
             token,
             priceFeed,
             priceFeedMultiplier,
-            priceFeedHeartbeatDuration,
             stablePrice
-        );
+        ));
 
-        _validateAndClearAction(actionKey, "setPriceFeed");
+        _validateAndClearAction(actionKey, "signalSetPriceFeed");
 
         dataStore.setAddress(Keys.priceFeedKey(token), priceFeed);
         dataStore.setUint(Keys.priceFeedMultiplierKey(token), priceFeedMultiplier);
-        dataStore.setUint(Keys.priceFeedHeartbeatDurationKey(token), priceFeedHeartbeatDuration);
         dataStore.setUint(Keys.stablePriceKey(token), stablePrice);
 
         EventUtils.EventLogData memory eventData;
         eventData.addressItems.initItems(2);
         eventData.addressItems.setItem(0, "token", token);
         eventData.addressItems.setItem(1, "priceFeed", priceFeed);
-        eventData.uintItems.initItems(3);
+        eventData.uintItems.initItems(2);
         eventData.uintItems.setItem(0, "priceFeedMultiplier", priceFeedMultiplier);
-        eventData.uintItems.setItem(1, "priceFeedHeartbeatDuration", priceFeedHeartbeatDuration);
-        eventData.uintItems.setItem(2, "stablePrice", stablePrice);
+        eventData.uintItems.setItem(1, "stablePrice", stablePrice);
         eventEmitter.emitEventLog1(
             "SetPriceFeed",
             actionKey,
@@ -330,21 +226,16 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev cancels a previously signalled pending action
-    // @param actionKey the key of the action to cancel
     function cancelAction(bytes32 actionKey) external onlyTimelockAdmin nonReentrant {
         _clearAction(actionKey, "cancelAction");
     }
 
-    // @dev signal a pending action
-    // @param actionKey the key of the action
-    // @param actionLabel a label for the action
     function _signalPendingAction(bytes32 actionKey, string memory actionLabel) internal {
         if (pendingActions[actionKey] != 0) {
-            revert Errors.ActionAlreadySignalled();
+            revert ActionAlreadySignalled();
         }
 
-        pendingActions[actionKey] = Chain.currentTimestamp() + timelockDelay;
+        pendingActions[actionKey] = block.timestamp + timelockDelay;
 
         EventUtils.EventLogData memory eventData;
 
@@ -361,71 +252,24 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
         );
     }
 
-    // @dev the key for the addOracleSigner action
-    function _addOracleSignerActionKey(address account) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("addOracleSigner", account));
-    }
-
-    // @dev the key for the removeOracleSigner action
-    function _removeOracleSignerActionKey(address account) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("removeOracleSigner", account));
-    }
-
-    // @dev the key for the setFeeReceiver action
-    function _setFeeReceiverActionKey(address account) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("setFeeReceiver", account));
-    }
-
-    // @dev the key for the grantRole action
-    function _grantRoleActionKey(address account, bytes32 roleKey) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("grantRole", account, roleKey));
-    }
-
-    // @dev the key for the revokeRole action
-    function _revokeRoleActionKey(address account, bytes32 roleKey) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked("revokeRole", account, roleKey));
-    }
-
-    // @dev the key for the setPriceFeed action
-    function _setPriceFeedActionKey(
-        address token,
-        address priceFeed,
-        uint256 priceFeedMultiplier,
-        uint256 priceFeedHeartbeatDuration,
-        uint256 stablePrice
-    ) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(
-            "setPriceFeed",
-            token,
-            priceFeed,
-            priceFeedMultiplier,
-            priceFeedHeartbeatDuration,
-            stablePrice
-        ));
-    }
-
-    // @dev validate that the action has been signalled and sufficient time has
-    // passed, clear the action after
     function _validateAndClearAction(bytes32 actionKey, string memory actionLabel) internal {
         _validateAction(actionKey);
         _clearAction(actionKey, actionLabel);
     }
 
-    // @dev validate that the action has been signalled and sufficient time has passed
     function _validateAction(bytes32 actionKey) internal view {
         if (pendingActions[actionKey] == 0) {
-            revert Errors.ActionNotSignalled();
+            revert ActionNotSignalled();
         }
 
-        if (pendingActions[actionKey] > Chain.currentTimestamp()) {
-            revert Errors.SignalTimeNotYetPassed(pendingActions[actionKey]);
+        if (pendingActions[actionKey] > block.timestamp) {
+            revert SignalTimeNotYetPassed(pendingActions[actionKey]);
         }
     }
 
-    // @dev clear a previously signalled action
     function _clearAction(bytes32 actionKey, string memory actionLabel) internal {
         if (pendingActions[actionKey] == 0) {
-            revert Errors.ActionNotSignalled();
+            revert ActionNotSignalled();
         }
         delete pendingActions[actionKey];
 
@@ -442,11 +286,5 @@ contract Timelock is ReentrancyGuard, RoleModule, BasicMulticall {
             actionKey,
             eventData
         );
-    }
-
-    function _validateTimelockDelay() internal view {
-        if (timelockDelay > MAX_TIMELOCK_DELAY) {
-            revert Errors.MaxTimelockDelayExceeded(timelockDelay);
-        }
     }
 }

@@ -7,17 +7,16 @@ import { OrderType, getOrderCount, handleOrder } from "../../utils/order";
 import { executeLiquidation } from "../../utils/liquidation";
 import { grantRole } from "../../utils/role";
 import { getAccountPositionCount } from "../../utils/position";
-import { errorsContract } from "../../utils/error";
 
 describe("Exchange.LiquidationOrder", () => {
   let fixture;
   let wallet, user0;
-  let roleStore, dataStore, ethUsdMarket, wnt, usdc;
+  let roleStore, dataStore, ethUsdMarket, decreasePositionUtils, wnt, usdc;
 
   beforeEach(async () => {
     fixture = await deployFixture();
     ({ wallet, user0 } = fixture.accounts);
-    ({ roleStore, dataStore, ethUsdMarket, wnt, usdc } = fixture.contracts);
+    ({ roleStore, dataStore, ethUsdMarket, decreasePositionUtils, wnt, usdc } = fixture.contracts);
 
     await handleDeposit(fixture, {
       create: {
@@ -42,6 +41,8 @@ describe("Exchange.LiquidationOrder", () => {
       },
       execute: {
         tokens: [wnt.address, usdc.address],
+        minPrices: [expandDecimals(5000, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(5000, 4), expandDecimals(1, 6)],
       },
     });
 
@@ -60,7 +61,7 @@ describe("Exchange.LiquidationOrder", () => {
         maxPrices: [expandDecimals(4200, 4), expandDecimals(1, 6)],
         gasUsageLabel: "liquidationHandler.executeLiquidation",
       })
-    ).to.be.revertedWithCustomError(errorsContract, "PositionShouldNotBeLiquidated");
+    ).to.be.revertedWithCustomError(decreasePositionUtils, "PositionShouldNotBeLiquidated");
 
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(1);
     expect(await getOrderCount(dataStore)).eq(0);

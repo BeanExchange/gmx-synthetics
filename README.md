@@ -314,11 +314,9 @@ Funding fees incentivise the balancing of long and short positions, the side wit
 
 Funding fees for the larger side is calculated as `(funding factor per second) * (open interest imbalance) ^ (funding exponent factor) / (total open interest)`.
 
-For example if the funding factor per second is 1 / 50,000, and the funding exponent factor is 1, and the long open interest is $150,000 and the short open interest is $50,000 then the funding fee per second for longs would be `(1 / 50,000) * 100,000 / 200,000 => 0.00001 => 0.001%`.
+For example if the funding factor per second is 1 / 50,000, and the funding exponent factor is 1, and the long open interest is $150,000 and the short open interest is $50,000 then the funding fee per second for longs would be `(1 / 50,000) * 150,000 / 200,000 => 0.000015 => 0.0015%`.
 
-The funding fee per second for shorts would be `-0.00001 * 150,000 / 50,000 => 0.00003 => -0.003%`.
-
-It is also possible to set a stableFundingFactor, this would result in the specified funding factor being used instead of the dynamic funding factor.
+The funding fee per second for shorts would be `0.000015 * 150,000 / 50,000 => 0.000045 => 0.0045%`.
 
 # Borrowing Fees
 
@@ -328,8 +326,6 @@ Borrowing fees are calculated as `borrowing factor * (open interest in usd + pen
 
 For example if the borrowing factor per second is 1 / 50,000, and the borrowing exponent factor is 1, and the long open interest is $150,000 with +$50,000 of pending pnl, and the pool has $250,000 worth of tokens, the borrowing fee per second for longs would be `(1 / 50,000) * (150,000 + 50,000) / 250,000 => 0.000016 => 0.0016%`.
 
-There is also an option to set a skipBorrowingFeeForSmallerSide flag, this would result in the borrowing fee for the smaller side being set to zero. For example, if there are more longs than shorts and skipBorrowingFeeForSmallerSide is true, then the borrowing fee for shorts would be zero.
-
 ## Price Impact
 
 The code for price impact can be found in the `/pricing` contracts.
@@ -337,7 +333,7 @@ The code for price impact can be found in the `/pricing` contracts.
 Price impact is calculated as:
 
 ```
-(initial USD difference) ^ (price impact exponent) * (price impact factor) - (next USD difference) ^ (price impact exponent) * (price impact factor)
+(initial USD difference) ^ (price impact exponent) * (price impact factor / 2) - (next USD difference) ^ (price impact exponent) * (price impact factor / 2)
 ```
 
 For swaps, imbalance is calculated as the difference in the worth of the long tokens and short tokens.
@@ -387,11 +383,9 @@ For example:
 - The user would receive (original position collateral - $150)
 - The pool would have an extra $150 of collateral which continues to have a net zero impact on the pool value due to the 0.03 index tokens in the position impact pool
 
-If the index token is different from both the long and short token of the market, then it is possible that the pool value becomes significantly affected by the position impact pool, if the position impact pool is very large and the index token has a large price increase. An option to gradually reduce the size of the position impact pool may be added if this becomes an issue.
+If the index token is different from both the long and short token of the market, then it is possible that the pool value becomes significantly affected by the position impact pool, if the position impact pool is very large and the index token has a large price increase. Due to this, there should be a method to gradually reduce the size of the position impact pool.
 
 Price impact is also tracked using a virtual inventory value for positions and swaps, this tracks the imbalance of tokens across similar markets, e.g. ETH/USDC, ETH/USDT.
-
-In case of a large price movement, it is possible that a large amount of positions are decreased or liquidated on one side causing a significant imbalance between long and short open interest, this could lead to very high price impact values. To mitigate this, a max position impact factor value can be configured. If the current price impact exceeds the max negative price impact, then any excess collateral deducted beyond the max negative price impact would be held within the contract, if there was no price manipulation detected, this collateral can be released to the user. When the negative price impact is capped, it may be profitable to open and immediately close positions, since the positive price impact may now be more than the capped negative price impact. To avoid this, the max positive price impact should be configured to be below the max negative price impact.
 
 # Fees
 
@@ -406,162 +400,6 @@ If a market has stablecoins as the short collateral token it should be able to f
 If a market has a long collateral token that is different from the index token, the long profits may not be fully paid out if the price increase of the index token exceeds the price increase of the long collateral token.
 
 Markets have a reserve factor that allows open interest to be capped to a percentage of the pool size, this reduces the impact of profits of short positions and reduces the risk that long positions cannot be fully paid out.
-
-# Parameters
-
-- minCollateralFactor: This determines the minimum allowed ratio of (position collateral) / (position size)
-
-- maxPoolAmount: The maximum amount of tokens that can be deposited into a market
-
-- maxOpenInterest: The maximum open interest that can be opened for a market
-
-- reserveFactor: This determines the maximum allowed ratio of (worth of tokens reserved for positions) / (tokens in the pool)
-
-- maxPnlFactor: The maximum ratio of (PnL / worth of tokens in the pool)
-
-- positionFeeFactor: This determines the percentage amount of fees to be deducted for position increase / decrease actions, the fee amount is based on the change in position size
-
-- positionImpactFactor: This is the "price impact factor" for positions described in the "Price Impact" section
-
-- maxPositionImpactFactor: This is the "max price impact" for positions described in the "Price Impact" section
-
-- positionImpactExponentFactor: This is the "price impact exponent" value for position actions, described in the "Price Impact" section
-
-- swapFeeFactor: This determines the percentage amount of fees to be deducted for swaps, the fee amount is based on the swap amount
-
-- swapImpactFactor: This is the "price impact factor" described in the "Price Impact" section
-
-- swapImpactExponentFactor: This is the "price impact exponent" value for deposits and swaps, described in the "Price Impact" section above
-
-- fundingFactor: This is the "funding factor per second" value described in the "Funding Fees" section
-
-- borrowingFactorForLongs: This is the "borrowing factor" for long positions described in the "Borrowing Fees" section
-
-- borrowingFactorForShorts: This is the "borrowing factor" for short positions described in the "Borrowing Fees" section
-
-- borrowingExponentFactorForLongs: This is the "borrowing exponent factor" for long positions described in the "Borrowing Fees" section
-
-- borrowingExponentFactorForShorts: This is the "borrowing exponent factor" for long positions described in the "Borrowing Fees" section
-
-# Roles
-
-Roles are managed in the RoleStore, the RoleAdmin has access to grant and revoke any role.
-
-The RoleAdmin will be the deployer initially, but this should be removed after roles have been setup.
-
-After the initial setup:
-
-- Only the Timelock contract should have the RoleAdmin role
-
-- New roles can be granted by timelock admins with a time delay
-
-- System values should only be set using the Config contract
-
-- No EOA should have a Controller role
-
-- Config keepers and timelock admins could potentially disrupt regular operation through the disabling of features, incorrect setting of values, whitelisting malicious tokens, abusing the positive price impact value, etc
-
-- It is expected that the timelock multisig should revoke the permissions of malicious or compromised accounts
-
-- Order keepers and frozen order keepers could potentially extract value through transaction ordering, delayed transaction execution, ADL execution, etc, this will be partially mitigated with a keeper network
-
-- Oracle signers are expected to accurately report the price of tokens
-
-# Known Issues
-
-- Collateral tokens need to be whitelisted with a configured TOKEN_TRANSFER_GAS_LIMIT
-
-- Rebasing tokens, tokens that change balance on transfer, with token burns, tokens with callbacks e.g. ERC-777 tokens, etc, are not compatible with the system and should not be whitelisted
-
-- Order keepers can use prices from different blocks for limit orders with a swap, which would lead to different output amounts
-
-- Order keepers are expected to validate whether a transaction will revert before sending the transaction to minimize gas wastage
-
-- Order keepers may cause requests to be cancelled instead of executed by executing the request with insufficient gas
-
-- A user can reduce price impact by using high leverage positions, this is partially mitigated with the MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER value
-
-- Price impact can be reduced by using positions and swaps and trading across markets, chains, forks, other protocols, this is partially mitigated with virtual inventory tracking
-
-- Virtual IDs must be set before market creation / token whitelisting, if it is set after trading for the token / market is done, the tracking would not be accurate and may need to be adjusted
-
-- If an execution transaction requires a large amount of gas that may be close to the maximum block gas limit, it may be possible to stuff blocks to prevent the transaction from being included in blocks
-
-- In certain blockchains it is possible for the keeper to have control over the tx.gasprice used to execute a transaction which would affect the execution fee paid to the keeper
-
-- For L2s with sequencers, there is no contract validation to check if the L2 sequencer is active, oracle keepers should stop signing prices if no blocks are being created by the sequencer, if the sequencer resumes regular operation, the oracle keepers should sign prices for the latest blocks using the latest fetched prices
-
-- In case an L2 sequencer is down, it may prevent deposits into positions to prevent liquidations
-
-- For transactions that can be executed entirely using on-chain price feeds, it may be possible to take advantage of stale pricing due to price latency or the chain being down, usage of on-chain price feeds should be temporary and low latency feeds should be used instead once all tokens are supported
-
-- Orders may be prevented from execution by a malicious user intentionally causing a market to be unbalanced resulting in a high price impact, this should be costly and difficult to benefit from
-
-- Block re-orgs could allow a user to retroactively cancel an order after it has been executed if price did not move favourably for the user, care should be taken to handle this case if using the contracts on chains where long re-orgs are possible
-
-- Updating and cancellation of orders could be front-run to prevent order execution, this should not be an issue if the probability of a successful front-running is less than or equal to 50%, if the probability is higher than 50%, fees and price impact should be adjusted to ensure that the strategy is not net profitable, adjusting the ui fee or referral discount could similarly be used to cause order cancellations
-
-- Decrease position orders could output two tokens instead of a single token, in case the decrease position swap fails, it is also possible that the output amount and collateral may not be sufficient to cover fees, causing the order to not be executed
-
-- If there is a large spread, it is possible that opening / closing a position can significantly change the min and max price of the market token, this should not be manipulatable in a profitable way
-
-- Changes in config values such as FUNDING_FACTOR, STABLE_FUNDING_FACTOR, BORROWING_FACTOR, SKIP_BORROWING_FEE_FOR_SMALLER_SIDE, BORROWING_FEE_RECEIVER_FACTOR, could lead to additional charges for users, it could also result in a change in the price of market tokens
-
-- Calculation of price impact values do not account for fees and the effects resulting from the price impact itself, for most cases the effect on the price impact calculation should be small
-
-- If trader PnL is capped, positions that are closed earlier may receive a lower PnL ratio compared to positions that are closed later
-
-- Due to the difference in positive and negative position price impact, there can be a build up of virtual token amounts in the position impact pool which would affect the pricing of market tokens, the feature to gradually reduce these virtual tokens should be added if needed
-
-- Contracts with the "CONTROLLER" role have access to important functions such as setting DataStore values, due to this, care should be taken to ensure that such contracts do not have generic functions or functions that can be intentionally used to change important values
-
-- If new contracts are added that may lead to a difference in pricing, e.g. of market tokens between the old and new contracts, then care should be taken to disable the old contracts before the new contracts are enabled
-
-- If the contracts are used to support equity synthetic markets, care should be taken to ensure that stock splits and similar changes can be handled
-
-- It is rare but possible for a pool's value to become negative, this can happen since the impactPoolAmount and pending PnL is subtracted from the worth of the tokens in the pool
-
-- Event data may be passed to callback contracts, the ordering of the params in the eventData will be attempted to be unchanged, so params can be accessed by index, for safety the key of the param should still be validated before use to check if it matches the expected value
-
-- Some parameters such as order.sizeDelta and order.initialCollateralDeltaAmount may be updated during execution, the updated values may not be passed to the callback contract
-
-- When creating a callback contract, the callback contract may need to whitelist the DepositHandler, OrderHandler or WithdrawalHandler, it should be noted that new versions of these handlers may be deployed as new code is added to the handlers, it is also possible for two handlers to temporarily exist at the same time, e.g. OrderHandler(1), OrderHandler(2), due to this, the callback contract should be able to whitelist and simultaneously accept callbacks from multiple DepositHandlers, OrderHandlers and WithdrawalHandlers
-
-- For callback contracts instead of maintaining a separate whitelist for DepositHandlers, OrderHandlers, WithdrawalHandlers, a possible solution would be to validate the role of the msg.sender in the RoleStore, e.g. `RoleStore.hasRole(msg.sender, Role.CONTROLLER)`, this would check that the msg.sender is a valid handler
-
-- The RoleStore and DataStore for deployments should not change, if they are changed a migration of funds from the previous contracts to the new contracts will likely be needed
-
-- New versions of the ExchangeRouter contract may be deployed, in this case two ExchangeRouters may exist at the same time, contracts should send requests to the new ExchangeRouter once it becomes available
-
-- New versions of the Oracle contract may be deployed, in this case validation of prices should be updated to use the new Oracle contract
-
-- While the code has been structured to minimize the risk of [read-only reentrancy](https://officercia.mirror.xyz/DBzFiDuxmDOTQEbfXhvLdK0DXVpKu1Nkurk0Cqk3QKc), care should be taken to guard against this possibility
-
-- Token airdrops may occur to the accounts of GM token holders, integrating contracts holding GM tokens must be able to claim these tokens otherwise the tokens would be locked, the exact implementation for this will vary depending on the integrating contract, one possibility is to allow claiming of tokens that are not market tokens, this can be checked using the `Keys.MARKET_LIST` value
-
-- In case of downtime of the blockchain or oracle, orders may be executed at significantly different prices or may not execute if the order's acceptable price cannot be fulfilled
-
-- Swaps for decrease orders may not be successful, this could result in two output tokens, one output in the collateral token and another in the profit token
-
-- Accounts may receive ETH for ADLs / liquidations, if the account cannot receive ETH then WETH would be sent instead
-
-- Positive price impact may be capped by configuration and the amount of tokens in the impact pools
-
-- Negative price impact may be capped by configuration
-
-- If negative price impact is capped, the additional amount would be kept in the claimable collateral pool, this needs to be manually claimed using the ExchangeRouter.claimCollateral function
-
-- Positive funding fees need to be manually claimed using the ExchangeRouter.claimFundingFees function
-
-- Affiliate rewards need to be manually claimed using the ExchangeRouter.claimAffiliateRewards function
-
-# Feature Development
-
-For the development of new features, a few things should be noted:
-
-- tests should be added for the different market types, e.g. spot only markets, single token markets
-
-- the ordering of values in the eventData for callbacks should not be modified unless strictly necessary, since callback contracts may reference the values by a fixed index
 
 # Commands
 

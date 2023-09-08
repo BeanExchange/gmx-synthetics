@@ -9,7 +9,6 @@ import "../data/Keys.sol";
 import "../role/RoleModule.sol";
 import "../event/EventEmitter.sol";
 import "../utils/BasicMulticall.sol";
-import "../utils/Precision.sol";
 
 // @title Config
 contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
@@ -26,8 +25,11 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
     DataStore public immutable dataStore;
     EventEmitter public immutable eventEmitter;
 
-    // @dev the base keys that can be set
-    mapping (bytes32 => bool) public allowedBaseKeys;
+    mapping (bytes32 => bool) public allowedKeys;
+
+    error InvalidKey(bytes32 key);
+    error InvalidFeeFactor(bytes32 key, uint256 value);
+    error InvalidFactor(bytes32 key, uint256 value);
 
     constructor(
         RoleStore _roleStore,
@@ -37,24 +39,20 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
         dataStore = _dataStore;
         eventEmitter = _eventEmitter;
 
-        _initAllowedBaseKeys();
+        _initAllowedKeys();
     }
 
-    // @dev set a bool value
-    // @param baseKey the base key of the value to set
-    // @param data the additional data to be combined with the base key
-    // @param value the bool value
-    function setBool(bytes32 baseKey, bytes memory data, bool value) external onlyConfigKeeper nonReentrant {
-        _validateKey(baseKey);
+    function setBool(bytes32 key, bytes memory data, bool value) external onlyConfigKeeper nonReentrant {
+        _validateKey(key);
 
-        bytes32 fullKey = _getFullKey(baseKey, data);
+        bytes32 fullKey = keccak256(bytes.concat(key, data));
 
         dataStore.setBool(fullKey, value);
 
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "baseKey", baseKey);
+        eventData.bytes32Items.setItem(0, "key", key);
 
         eventData.bytesItems.initItems(1);
         eventData.bytesItems.setItem(0, "data", data);
@@ -64,26 +62,22 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
 
         eventEmitter.emitEventLog1(
             "SetBool",
-            baseKey,
+            key,
             eventData
         );
     }
 
-    // @dev set an address value
-    // @param baseKey the base key of the value to set
-    // @param data the additional data to be combined with the base key
-    // @param value the address value
-    function setAddress(bytes32 baseKey, bytes memory data, address value) external onlyConfigKeeper nonReentrant {
-        _validateKey(baseKey);
+    function setAddress(bytes32 key, bytes memory data, address value) external onlyConfigKeeper nonReentrant {
+        _validateKey(key);
 
-        bytes32 fullKey = _getFullKey(baseKey, data);
+        bytes32 fullKey = keccak256(bytes.concat(key, data));
 
         dataStore.setAddress(fullKey, value);
 
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "baseKey", baseKey);
+        eventData.bytes32Items.setItem(0, "key", key);
 
         eventData.bytesItems.initItems(1);
         eventData.bytesItems.setItem(0, "data", data);
@@ -93,26 +87,22 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
 
         eventEmitter.emitEventLog1(
             "SetAddress",
-            baseKey,
+            key,
             eventData
         );
     }
 
-    // @dev set a bytes32 value
-    // @param baseKey the base key of the value to set
-    // @param data the additional data to be combined with the base key
-    // @param value the bytes32 value
-    function setBytes32(bytes32 baseKey, bytes memory data, bytes32 value) external onlyConfigKeeper nonReentrant {
-        _validateKey(baseKey);
+    function setBytes32(bytes32 key, bytes memory data, bytes32 value) external onlyConfigKeeper nonReentrant {
+        _validateKey(key);
 
-        bytes32 fullKey = _getFullKey(baseKey, data);
+        bytes32 fullKey = keccak256(bytes.concat(key, data));
 
         dataStore.setBytes32(fullKey, value);
 
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(2);
-        eventData.bytes32Items.setItem(0, "baseKey", baseKey);
+        eventData.bytes32Items.setItem(0, "key", key);
         eventData.bytes32Items.setItem(1, "value", value);
 
         eventData.bytesItems.initItems(1);
@@ -120,28 +110,24 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
 
         eventEmitter.emitEventLog1(
             "SetBytes32",
-            baseKey,
+            key,
             eventData
         );
     }
 
-    // @dev set a uint256 value
-    // @param basekey the base key of the value to set
-    // @param data the additional data to be combined with the base key
-    // @param value the uint256 value
-    function setUint(bytes32 baseKey, bytes memory data, uint256 value) external onlyConfigKeeper nonReentrant {
-        _validateKey(baseKey);
+    function setUint(bytes32 key, bytes memory data, uint256 value) external onlyConfigKeeper nonReentrant {
+        _validateKey(key);
 
-        bytes32 fullKey = _getFullKey(baseKey, data);
+        bytes32 fullKey = keccak256(bytes.concat(key, data));
 
-        _validateRange(baseKey, value);
+        _validateRange(key, value);
 
         dataStore.setUint(fullKey, value);
 
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "baseKey", baseKey);
+        eventData.bytes32Items.setItem(0, "key", key);
 
         eventData.bytesItems.initItems(1);
         eventData.bytesItems.setItem(0, "data", data);
@@ -151,26 +137,22 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
 
         eventEmitter.emitEventLog1(
             "SetUint",
-            baseKey,
+            key,
             eventData
         );
     }
 
-    // @dev set an int256 value
-    // @param basekey the base key of the value to set
-    // @param data the additional data to be combined with the base key
-    // @param value the int256 value
-    function setInt(bytes32 baseKey, bytes memory data, int256 value) external onlyConfigKeeper nonReentrant {
-        _validateKey(baseKey);
+    function setInt(bytes32 key, bytes memory data, int256 value) external onlyConfigKeeper nonReentrant {
+        _validateKey(key);
 
-        bytes32 fullKey = _getFullKey(baseKey, data);
+        bytes32 fullKey = keccak256(bytes.concat(key, data));
 
         dataStore.setInt(fullKey, value);
 
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(1);
-        eventData.bytes32Items.setItem(0, "baseKey", baseKey);
+        eventData.bytes32Items.setItem(0, "key", key);
 
         eventData.bytesItems.initItems(1);
         eventData.bytesItems.setItem(0, "data", data);
@@ -180,166 +162,105 @@ contract Config is ReentrancyGuard, RoleModule, BasicMulticall {
 
         eventEmitter.emitEventLog1(
             "SetInt",
-            baseKey,
+            key,
             eventData
         );
     }
 
-    function _getFullKey(bytes32 baseKey, bytes memory data) internal pure returns (bytes32) {
-        if (data.length == 0) {
-            return baseKey;
-        }
+    function _initAllowedKeys() internal {
+        allowedKeys[Keys.IS_MARKET_DISABLED] = true;
 
-        return keccak256(bytes.concat(baseKey, data));
+        allowedKeys[Keys.CREATE_DEPOSIT_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.CANCEL_DEPOSIT_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.EXECUTE_DEPOSIT_FEATURE_DISABLED] = true;
+
+        allowedKeys[Keys.CREATE_WITHDRAWAL_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.CANCEL_WITHDRAWAL_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.EXECUTE_WITHDRAWAL_FEATURE_DISABLED] = true;
+
+        allowedKeys[Keys.CREATE_ORDER_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.EXECUTE_ORDER_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.EXECUTE_ADL_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.UPDATE_ORDER_FEATURE_DISABLED] = true;
+        allowedKeys[Keys.CANCEL_ORDER_FEATURE_DISABLED] = true;
+
+        allowedKeys[Keys.MIN_ORACLE_BLOCK_CONFIRMATIONS] = true;
+        allowedKeys[Keys.MAX_ORACLE_PRICE_AGE] = true;
+        allowedKeys[Keys.POSITION_FEE_RECEIVER_FACTOR] = true;
+        allowedKeys[Keys.SWAP_FEE_RECEIVER_FACTOR] = true;
+        allowedKeys[Keys.BORROWING_FEE_RECEIVER_FACTOR] = true;
+
+        allowedKeys[Keys.ESTIMATED_GAS_FEE_BASE_AMOUNT] = true;
+        allowedKeys[Keys.ESTIMATED_GAS_FEE_MULTIPLIER_FACTOR] = true;
+
+        allowedKeys[Keys.EXECUTION_GAS_FEE_BASE_AMOUNT] = true;
+        allowedKeys[Keys.EXECUTION_GAS_FEE_MULTIPLIER_FACTOR] = true;
+
+        allowedKeys[Keys.DEPOSIT_GAS_LIMIT] = true;
+        allowedKeys[Keys.WITHDRAWAL_GAS_LIMIT] = true;
+        allowedKeys[Keys.SINGLE_SWAP_GAS_LIMIT] = true;
+        allowedKeys[Keys.INCREASE_ORDER_GAS_LIMIT] = true;
+        allowedKeys[Keys.DECREASE_ORDER_GAS_LIMIT] = true;
+        allowedKeys[Keys.SWAP_ORDER_GAS_LIMIT] = true;
+        allowedKeys[Keys.TOKEN_TRANSFER_GAS_LIMIT] = true;
+        allowedKeys[Keys.NATIVE_TOKEN_TRANSFER_GAS_LIMIT] = true;
+
+        allowedKeys[Keys.REQUEST_EXPIRATION_BLOCK_AGE] = true;
+        allowedKeys[Keys.MIN_COLLATERAL_FACTOR] = true;
+        allowedKeys[Keys.MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER] = true;
+        allowedKeys[Keys.MIN_COLLATERAL_USD] = true;
+
+        allowedKeys[Keys.VIRTUAL_TOKEN_ID] = true;
+        allowedKeys[Keys.VIRTUAL_MARKET_ID] = true;
+        allowedKeys[Keys.VIRTUAL_INVENTORY_FOR_SWAPS] = true;
+        allowedKeys[Keys.VIRTUAL_INVENTORY_FOR_POSITIONS] = true;
+        allowedKeys[Keys.THRESHOLD_POSITION_IMPACT_FACTOR_FOR_VIRTUAL_INVENTORY] = true;
+        allowedKeys[Keys.THRESHOLD_SWAP_IMPACT_FACTOR_FOR_VIRTUAL_INVENTORY] = true;
+
+        allowedKeys[Keys.POSITION_IMPACT_FACTOR] = true;
+        allowedKeys[Keys.POSITION_IMPACT_EXPONENT_FACTOR] = true;
+        allowedKeys[Keys.MAX_POSITION_IMPACT_FACTOR] = true;
+        allowedKeys[Keys.POSITION_FEE_FACTOR] = true;
+
+        allowedKeys[Keys.SWAP_IMPACT_FACTOR] = true;
+        allowedKeys[Keys.SWAP_IMPACT_EXPONENT_FACTOR] = true;
+        allowedKeys[Keys.SWAP_FEE_FACTOR] = true;
+
+        allowedKeys[Keys.ORACLE_TYPE] = true;
+
+        allowedKeys[Keys.RESERVE_FACTOR] = true;
+        allowedKeys[Keys.MAX_PNL_FACTOR] = true;
+        allowedKeys[Keys.MAX_PNL_FACTOR_FOR_WITHDRAWALS] = true;
+        allowedKeys[Keys.FUNDING_FACTOR] = true;
+        allowedKeys[Keys.BORROWING_FACTOR] = true;
     }
 
-    // @dev initialize the allowed base keys
-    function _initAllowedBaseKeys() internal {
-        allowedBaseKeys[Keys.HOLDING_ADDRESS] = true;
-
-        allowedBaseKeys[Keys.MIN_HANDLE_EXECUTION_ERROR_GAS] = true;
-
-        allowedBaseKeys[Keys.IS_MARKET_DISABLED] = true;
-
-        allowedBaseKeys[Keys.MAX_SWAP_PATH_LENGTH] = true;
-        allowedBaseKeys[Keys.MAX_CALLBACK_GAS_LIMIT] = true;
-
-        allowedBaseKeys[Keys.MIN_POSITION_SIZE_USD] = true;
-        allowedBaseKeys[Keys.MAX_POSITION_IMPACT_FACTOR_FOR_LIQUIDATIONS] = true;
-
-        allowedBaseKeys[Keys.MAX_POOL_AMOUNT] = true;
-        allowedBaseKeys[Keys.MAX_OPEN_INTEREST] = true;
-
-        allowedBaseKeys[Keys.CREATE_DEPOSIT_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CANCEL_DEPOSIT_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.EXECUTE_DEPOSIT_FEATURE_DISABLED] = true;
-
-        allowedBaseKeys[Keys.CREATE_WITHDRAWAL_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CANCEL_WITHDRAWAL_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.EXECUTE_WITHDRAWAL_FEATURE_DISABLED] = true;
-
-        allowedBaseKeys[Keys.CREATE_ORDER_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.EXECUTE_ORDER_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.EXECUTE_ADL_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.UPDATE_ORDER_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CANCEL_ORDER_FEATURE_DISABLED] = true;
-
-        allowedBaseKeys[Keys.CLAIM_FUNDING_FEES_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CLAIM_COLLATERAL_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CLAIM_AFFILIATE_REWARDS_FEATURE_DISABLED] = true;
-        allowedBaseKeys[Keys.CLAIM_UI_FEES_FEATURE_DISABLED] = true;
-
-        allowedBaseKeys[Keys.MIN_ORACLE_BLOCK_CONFIRMATIONS] = true;
-        allowedBaseKeys[Keys.MAX_ORACLE_PRICE_AGE] = true;
-        allowedBaseKeys[Keys.MAX_ORACLE_REF_PRICE_DEVIATION_FACTOR] = true;
-        allowedBaseKeys[Keys.POSITION_FEE_RECEIVER_FACTOR] = true;
-        allowedBaseKeys[Keys.SWAP_FEE_RECEIVER_FACTOR] = true;
-        allowedBaseKeys[Keys.BORROWING_FEE_RECEIVER_FACTOR] = true;
-
-        allowedBaseKeys[Keys.ESTIMATED_GAS_FEE_BASE_AMOUNT] = true;
-        allowedBaseKeys[Keys.ESTIMATED_GAS_FEE_MULTIPLIER_FACTOR] = true;
-
-        allowedBaseKeys[Keys.EXECUTION_GAS_FEE_BASE_AMOUNT] = true;
-        allowedBaseKeys[Keys.EXECUTION_GAS_FEE_MULTIPLIER_FACTOR] = true;
-
-        allowedBaseKeys[Keys.DEPOSIT_GAS_LIMIT] = true;
-        // use Keys.withdrawalGasLimitKey() here because it is double hashed
-        allowedBaseKeys[Keys.withdrawalGasLimitKey()] = true;
-        allowedBaseKeys[Keys.SINGLE_SWAP_GAS_LIMIT] = true;
-        allowedBaseKeys[Keys.INCREASE_ORDER_GAS_LIMIT] = true;
-        allowedBaseKeys[Keys.DECREASE_ORDER_GAS_LIMIT] = true;
-        allowedBaseKeys[Keys.SWAP_ORDER_GAS_LIMIT] = true;
-        allowedBaseKeys[Keys.TOKEN_TRANSFER_GAS_LIMIT] = true;
-        allowedBaseKeys[Keys.NATIVE_TOKEN_TRANSFER_GAS_LIMIT] = true;
-
-        allowedBaseKeys[Keys.REQUEST_EXPIRATION_BLOCK_AGE] = true;
-        allowedBaseKeys[Keys.MIN_COLLATERAL_FACTOR] = true;
-        allowedBaseKeys[Keys.MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER] = true;
-        allowedBaseKeys[Keys.MIN_COLLATERAL_USD] = true;
-
-        allowedBaseKeys[Keys.VIRTUAL_TOKEN_ID] = true;
-        allowedBaseKeys[Keys.VIRTUAL_MARKET_ID] = true;
-        allowedBaseKeys[Keys.VIRTUAL_INVENTORY_FOR_SWAPS] = true;
-        allowedBaseKeys[Keys.VIRTUAL_INVENTORY_FOR_POSITIONS] = true;
-
-        allowedBaseKeys[Keys.POSITION_IMPACT_FACTOR] = true;
-        allowedBaseKeys[Keys.POSITION_IMPACT_EXPONENT_FACTOR] = true;
-        allowedBaseKeys[Keys.MAX_POSITION_IMPACT_FACTOR] = true;
-        allowedBaseKeys[Keys.POSITION_FEE_FACTOR] = true;
-
-        allowedBaseKeys[Keys.SWAP_IMPACT_FACTOR] = true;
-        allowedBaseKeys[Keys.SWAP_IMPACT_EXPONENT_FACTOR] = true;
-        allowedBaseKeys[Keys.SWAP_FEE_FACTOR] = true;
-
-        allowedBaseKeys[Keys.MAX_UI_FEE_FACTOR] = true;
-
-        allowedBaseKeys[Keys.ORACLE_TYPE] = true;
-
-        allowedBaseKeys[Keys.RESERVE_FACTOR] = true;
-        allowedBaseKeys[Keys.OPEN_INTEREST_RESERVE_FACTOR] = true;
-
-        allowedBaseKeys[Keys.MAX_PNL_FACTOR] = true;
-        allowedBaseKeys[Keys.MIN_PNL_FACTOR_AFTER_ADL] = true;
-
-        allowedBaseKeys[Keys.FUNDING_FACTOR] = true;
-        allowedBaseKeys[Keys.STABLE_FUNDING_FACTOR] = true;
-        allowedBaseKeys[Keys.FUNDING_EXPONENT_FACTOR] = true;
-
-        allowedBaseKeys[Keys.BORROWING_FACTOR] = true;
-        allowedBaseKeys[Keys.BORROWING_EXPONENT_FACTOR] = true;
-        allowedBaseKeys[Keys.SKIP_BORROWING_FEE_FOR_SMALLER_SIDE] = true;
-
-        allowedBaseKeys[Keys.CLAIMABLE_COLLATERAL_FACTOR] = true;
-
-        allowedBaseKeys[Keys.PRICE_FEED_HEARTBEAT_DURATION] = true;
-    }
-
-    // @dev validate that the baseKey is allowed to be used
-    // @param baseKey the base key to validate
-    function _validateKey(bytes32 baseKey) internal view {
-        if (!allowedBaseKeys[baseKey]) {
-            revert Errors.InvalidBaseKey(baseKey);
+    function _validateKey(bytes32 key) internal view {
+        if (!allowedKeys[key]) {
+            revert InvalidKey(key);
         }
     }
 
-    // @dev validate that the value is within the allowed range
-    // @param baseKey the base key for the value
-    // @param value the value to be set
-    function _validateRange(bytes32 baseKey, uint256 value) internal pure {
+    function _validateRange(bytes32 key, uint256 value) internal pure {
         if (
-            baseKey == Keys.FUNDING_FACTOR ||
-            baseKey == Keys.BORROWING_FACTOR
+            key == Keys.SWAP_FEE_FACTOR ||
+            key == Keys.POSITION_FEE_FACTOR
         ) {
-            // revert if value > 1%
-            if (value > 1 * Precision.FLOAT_PRECISION / 100) {
-                revert Errors.InvalidFeeFactor(baseKey, value);
-            }
+            revert InvalidFeeFactor(key, value);
         }
 
         if (
-            baseKey == Keys.SWAP_FEE_FACTOR ||
-            baseKey == Keys.POSITION_FEE_FACTOR ||
-            baseKey == Keys.MAX_UI_FEE_FACTOR
+            key == Keys.POSITION_FEE_RECEIVER_FACTOR ||
+            key == Keys.SWAP_FEE_RECEIVER_FACTOR ||
+            key == Keys.BORROWING_FEE_RECEIVER_FACTOR ||
+            key == Keys.MIN_COLLATERAL_FACTOR ||
+            key == Keys.RESERVE_FACTOR ||
+            key == Keys.MAX_PNL_FACTOR ||
+            key == Keys.MAX_PNL_FACTOR_FOR_WITHDRAWALS ||
+            key == Keys.FUNDING_FACTOR ||
+            key == Keys.BORROWING_FACTOR
         ) {
-            // revert if value > 5%
-            if (value > 5 * Precision.FLOAT_PRECISION / 100) {
-                revert Errors.InvalidFeeFactor(baseKey, value);
-            }
-        }
-
-        if (
-            baseKey == Keys.POSITION_FEE_RECEIVER_FACTOR ||
-            baseKey == Keys.SWAP_FEE_RECEIVER_FACTOR ||
-            baseKey == Keys.BORROWING_FEE_RECEIVER_FACTOR ||
-            baseKey == Keys.MIN_COLLATERAL_FACTOR ||
-            baseKey == Keys.MAX_PNL_FACTOR ||
-            baseKey == Keys.MIN_PNL_FACTOR_AFTER_ADL ||
-            baseKey == Keys.CLAIMABLE_COLLATERAL_FACTOR
-        ) {
-            // revert if value > 100%
-            if (value > Precision.FLOAT_PRECISION) {
-                revert Errors.InvalidFeeFactor(baseKey, value);
-            }
+            revert InvalidFactor(key, value);
         }
     }
 }

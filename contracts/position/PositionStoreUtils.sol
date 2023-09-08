@@ -22,9 +22,8 @@ library PositionStoreUtils {
     bytes32 public constant SIZE_IN_TOKENS = keccak256(abi.encode("SIZE_IN_TOKENS"));
     bytes32 public constant COLLATERAL_AMOUNT = keccak256(abi.encode("COLLATERAL_AMOUNT"));
     bytes32 public constant BORROWING_FACTOR = keccak256(abi.encode("BORROWING_FACTOR"));
-    bytes32 public constant FUNDING_FEE_AMOUNT_PER_SIZE = keccak256(abi.encode("FUNDING_FEE_AMOUNT_PER_SIZE"));
-    bytes32 public constant LONG_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE = keccak256(abi.encode("LONG_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE"));
-    bytes32 public constant SHORT_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE = keccak256(abi.encode("SHORT_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE"));
+    bytes32 public constant LONG_TOKEN_FUNDING_AMOUNT_PER_SIZE = keccak256(abi.encode("LONG_TOKEN_FUNDING_AMOUNT_PER_SIZE"));
+    bytes32 public constant SHORT_TOKEN_FUNDING_AMOUNT_PER_SIZE = keccak256(abi.encode("SHORT_TOKEN_FUNDING_AMOUNT_PER_SIZE"));
     bytes32 public constant INCREASED_AT_BLOCK = keccak256(abi.encode("INCREASED_AT_BLOCK"));
     bytes32 public constant DECREASED_AT_BLOCK = keccak256(abi.encode("DECREASED_AT_BLOCK"));
 
@@ -64,16 +63,12 @@ library PositionStoreUtils {
             keccak256(abi.encode(key, BORROWING_FACTOR))
         ));
 
-        position.setFundingFeeAmountPerSize(dataStore.getUint(
-            keccak256(abi.encode(key, FUNDING_FEE_AMOUNT_PER_SIZE))
+        position.setLongTokenFundingAmountPerSize(dataStore.getInt(
+            keccak256(abi.encode(key, LONG_TOKEN_FUNDING_AMOUNT_PER_SIZE))
         ));
 
-        position.setLongTokenClaimableFundingAmountPerSize(dataStore.getUint(
-            keccak256(abi.encode(key, LONG_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE))
-        ));
-
-        position.setShortTokenClaimableFundingAmountPerSize(dataStore.getUint(
-            keccak256(abi.encode(key, SHORT_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE))
+        position.setShortTokenFundingAmountPerSize(dataStore.getInt(
+            keccak256(abi.encode(key, SHORT_TOKEN_FUNDING_AMOUNT_PER_SIZE))
         ));
 
         position.setIncreasedAtBlock(dataStore.getUint(
@@ -137,19 +132,14 @@ library PositionStoreUtils {
             position.borrowingFactor()
         );
 
-        dataStore.setUint(
-            keccak256(abi.encode(key, FUNDING_FEE_AMOUNT_PER_SIZE)),
-            position.fundingFeeAmountPerSize()
+        dataStore.setInt(
+            keccak256(abi.encode(key, LONG_TOKEN_FUNDING_AMOUNT_PER_SIZE)),
+            position.longTokenFundingAmountPerSize()
         );
 
-        dataStore.setUint(
-            keccak256(abi.encode(key, LONG_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE)),
-            position.longTokenClaimableFundingAmountPerSize()
-        );
-
-        dataStore.setUint(
-            keccak256(abi.encode(key, SHORT_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE)),
-            position.shortTokenClaimableFundingAmountPerSize()
+        dataStore.setInt(
+            keccak256(abi.encode(key, SHORT_TOKEN_FUNDING_AMOUNT_PER_SIZE)),
+            position.shortTokenFundingAmountPerSize()
         );
 
         dataStore.setUint(
@@ -169,10 +159,6 @@ library PositionStoreUtils {
     }
 
     function remove(DataStore dataStore, bytes32 key, address account) external {
-        if (!dataStore.containsBytes32(Keys.POSITION_LIST, key)) {
-            revert Errors.PositionNotFound(key);
-        }
-
         dataStore.removeBytes32(
             Keys.POSITION_LIST,
             key
@@ -211,16 +197,12 @@ library PositionStoreUtils {
             keccak256(abi.encode(key, BORROWING_FACTOR))
         );
 
-        dataStore.removeUint(
-            keccak256(abi.encode(key, FUNDING_FEE_AMOUNT_PER_SIZE))
+        dataStore.removeInt(
+            keccak256(abi.encode(key, LONG_TOKEN_FUNDING_AMOUNT_PER_SIZE))
         );
 
-        dataStore.removeUint(
-            keccak256(abi.encode(key, LONG_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE))
-        );
-
-        dataStore.removeUint(
-            keccak256(abi.encode(key, SHORT_TOKEN_CLAIMABLE_FUNDING_AMOUNT_PER_SIZE))
+        dataStore.removeInt(
+            keccak256(abi.encode(key, SHORT_TOKEN_FUNDING_AMOUNT_PER_SIZE))
         );
 
         dataStore.removeUint(

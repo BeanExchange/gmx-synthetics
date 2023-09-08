@@ -64,14 +64,13 @@ contract BaseOrderHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         bytes32 key,
         OracleUtils.SetPricesParams memory oracleParams,
         address keeper,
-        uint256 startingGas,
-        Order.SecondaryOrderType secondaryOrderType
+        uint256 startingGas
     ) internal view returns (BaseOrderUtils.ExecuteOrderParams memory) {
         BaseOrderUtils.ExecuteOrderParams memory params;
 
         params.key = key;
         params.order = OrderStoreUtils.get(dataStore, key);
-        params.swapPathMarkets = MarketUtils.getSwapPathMarkets(
+        params.swapPathMarkets = MarketUtils.getEnabledMarkets(
             dataStore,
             params.order.swapPath()
         );
@@ -99,8 +98,6 @@ contract BaseOrderHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
 
         params.keeper = keeper;
         params.startingGas = startingGas;
-
-        params.secondaryOrderType = secondaryOrderType;
 
         return params;
     }

@@ -2,7 +2,7 @@ import hre from "hardhat";
 
 import * as keys from "../utils/keys";
 
-import { getMarketTokenAddress, DEFAULT_MARKET_TYPE } from "../utils/market";
+import { getMarketTokenAddress } from "../utils/market";
 
 import { MintableToken } from "../typechain-types";
 
@@ -19,7 +19,6 @@ async function main() {
     weth.address,
     weth.address,
     usdc.address,
-    DEFAULT_MARKET_TYPE,
     marketFactory.address,
     roleStore.address,
     dataStore.address

@@ -3,8 +3,6 @@ import { expect } from "chai";
 import { deployFixture } from "../../utils/fixture";
 import { expandDecimals } from "../../utils/math";
 import { printGasUsage } from "../../utils/gas";
-import { errorsContract } from "../../utils/error";
-import { handleDeposit } from "../../utils/deposit";
 import { getWithdrawalCount, getWithdrawalKeys, createWithdrawal } from "../../utils/withdrawal";
 
 describe("Exchange.Withdrawal", () => {
@@ -22,13 +20,6 @@ describe("Exchange.Withdrawal", () => {
 
   it("cancelWithdrawal", async () => {
     expect(await getWithdrawalCount(dataStore)).eq(0);
-
-    await handleDeposit(fixture, {
-      create: {
-        market: ethUsdMarket,
-        longTokenAmount: expandDecimals(10, 18),
-      },
-    });
 
     await createWithdrawal(fixture, {
       account: user0,
@@ -63,7 +54,7 @@ describe("Exchange.Withdrawal", () => {
     expect(withdrawal.flags.shouldUnwrapNativeToken).eq(true);
 
     await expect(exchangeRouter.connect(user1).cancelWithdrawal(withdrawalKeys[0]))
-      .to.be.revertedWithCustomError(errorsContract, "Unauthorized")
+      .to.be.revertedWithCustomError(exchangeRouter, "Unauthorized")
       .withArgs(user1.address, "account for cancelWithdrawal");
 
     expect(await getWithdrawalCount(dataStore)).eq(1);

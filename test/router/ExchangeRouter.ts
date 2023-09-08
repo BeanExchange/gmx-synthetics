@@ -1,22 +1,17 @@
 import { expect } from "chai";
 
-import { contractAt } from "../../utils/deploy";
 import { deployFixture } from "../../utils/fixture";
 import { expandDecimals, decimalToFloat } from "../../utils/math";
 import { logGasUsage } from "../../utils/gas";
 import { getDepositKeys } from "../../utils/deposit";
 import { getWithdrawalKeys } from "../../utils/withdrawal";
-import { handleDeposit } from "../../utils/deposit";
-import { hashString } from "../../utils/hash";
-import { getNextKey } from "../../utils/nonce";
-import { errorsContract } from "../../utils/error";
 import { OrderType, DecreasePositionSwapType, getOrderKeys } from "../../utils/order";
 
 describe("ExchangeRouter", () => {
   const { provider } = ethers;
 
   let fixture;
-  let user0, user1, user2, user3;
+  let user0, user1, user2;
   let reader,
     dataStore,
     depositVault,
@@ -26,13 +21,12 @@ describe("ExchangeRouter", () => {
     exchangeRouter,
     ethUsdMarket,
     ethUsdSpotOnlyMarket,
-    wnt,
     usdc;
   const executionFee = expandDecimals(1, 18);
 
   beforeEach(async () => {
     fixture = await deployFixture();
-    ({ user0, user1, user2, user3 } = fixture.accounts);
+    ({ user0, user1, user2 } = fixture.accounts);
     ({
       reader,
       dataStore,
@@ -43,7 +37,6 @@ describe("ExchangeRouter", () => {
       exchangeRouter,
       ethUsdMarket,
       ethUsdSpotOnlyMarket,
-      wnt,
       usdc,
     } = fixture.contracts);
   });
@@ -63,7 +56,6 @@ describe("ExchangeRouter", () => {
           {
             receiver: user1.address,
             callbackContract: user2.address,
-            uiFeeReceiver: user3.address,
             market: ethUsdMarket.marketToken,
             initialLongToken: ethUsdMarket.longToken,
             initialShortToken: ethUsdMarket.shortToken,
@@ -106,7 +98,6 @@ describe("ExchangeRouter", () => {
   });
 
   it("createOrder", async () => {
-    const referralCode = hashString("referralCode");
     await usdc.mint(user0.address, expandDecimals(50 * 1000, 6));
     await usdc.connect(user0).approve(router.address, expandDecimals(50 * 1000, 6));
     const tx = await exchangeRouter.connect(user0).multicall(
@@ -117,7 +108,6 @@ describe("ExchangeRouter", () => {
             addresses: {
               receiver: user1.address,
               callbackContract: user2.address,
-              uiFeeReceiver: user3.address,
               market: ethUsdMarket.marketToken,
               initialCollateralToken: ethUsdMarket.longToken,
               swapPath: [ethUsdMarket.marketToken],
@@ -135,8 +125,8 @@ describe("ExchangeRouter", () => {
             decreasePositionSwapType: DecreasePositionSwapType.SwapCollateralTokenToPnlToken,
             isLong: true,
             shouldUnwrapNativeToken: true,
-            referralCode,
           },
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
         ]),
       ],
       { value: expandDecimals(11, 18) }
@@ -174,29 +164,13 @@ describe("ExchangeRouter", () => {
   });
 
   it("createWithdrawal", async () => {
-    await handleDeposit(fixture, {
-      create: {
-        market: ethUsdMarket,
-        longTokenAmount: expandDecimals(10, 18),
-      },
-    });
-
-    const marketToken = await contractAt("MarketToken", ethUsdMarket.marketToken);
-    await marketToken.connect(user0).approve(router.address, expandDecimals(50 * 1000, 18));
-
     const tx = await exchangeRouter.connect(user0).multicall(
       [
         exchangeRouter.interface.encodeFunctionData("sendWnt", [withdrawalVault.address, expandDecimals(1, 18)]),
-        exchangeRouter.interface.encodeFunctionData("sendTokens", [
-          ethUsdMarket.marketToken,
-          withdrawalVault.address,
-          700,
-        ]),
         exchangeRouter.interface.encodeFunctionData("createWithdrawal", [
           {
             receiver: user1.address,
             callbackContract: user2.address,
-            uiFeeReceiver: user3.address,
             market: ethUsdMarket.marketToken,
             longTokenSwapPath: [],
             shortTokenSwapPath: [],
@@ -235,60 +209,5 @@ describe("ExchangeRouter", () => {
       tx,
       label: "exchangeRouter.createWithdrawal",
     });
-  });
-
-  it("simulateExecuteDeposit", async () => {
-    await usdc.mint(user0.address, expandDecimals(50 * 1000, 6));
-    await usdc.connect(user0).approve(router.address, expandDecimals(50 * 1000, 6));
-
-    const depositKey = await getNextKey(dataStore);
-
-    await expect(
-      exchangeRouter.connect(user0).multicall(
-        [
-          exchangeRouter.interface.encodeFunctionData("sendWnt", [depositVault.address, expandDecimals(11, 18)]),
-          exchangeRouter.interface.encodeFunctionData("sendTokens", [
-            usdc.address,
-            depositVault.address,
-            expandDecimals(50 * 1000, 6),
-          ]),
-          exchangeRouter.interface.encodeFunctionData("createDeposit", [
-            {
-              receiver: user1.address,
-              callbackContract: user2.address,
-              uiFeeReceiver: user3.address,
-              market: ethUsdMarket.marketToken,
-              initialLongToken: ethUsdMarket.longToken,
-              initialShortToken: ethUsdMarket.shortToken,
-              longTokenSwapPath: [],
-              shortTokenSwapPath: [],
-              minMarketTokens: 100,
-              shouldUnwrapNativeToken: true,
-              executionFee,
-              callbackGasLimit: "200000",
-            },
-          ]),
-          exchangeRouter.interface.encodeFunctionData("simulateExecuteDeposit", [
-            depositKey,
-            {
-              primaryTokens: [wnt.address, usdc.address],
-              primaryPrices: [
-                {
-                  min: expandDecimals(5000, 12),
-                  max: expandDecimals(5000, 12),
-                },
-                {
-                  min: expandDecimals(1, 24),
-                  max: expandDecimals(1, 24),
-                },
-              ],
-              secondaryTokens: [],
-              secondaryPrices: [],
-            },
-          ]),
-        ],
-        { value: expandDecimals(11, 18) }
-      )
-    ).to.be.revertedWithCustomError(errorsContract, "EndOfOracleSimulation");
   });
 });

@@ -1,10 +1,7 @@
-import { expect } from "chai";
 import { logGasUsage } from "./gas";
-import { contractAt } from "./deploy";
 import { expandDecimals, bigNumberify } from "./math";
 import { executeWithOracleParams } from "./exchange";
-import { parseLogs } from "./event";
-import { getCancellationReason, getErrorString } from "./error";
+import { TOKEN_ORACLE_TYPES } from "./oracle";
 
 import * as keys from "./keys";
 
@@ -31,7 +28,6 @@ export async function createWithdrawal(fixture, overrides = {}) {
   const account = overrides.account || user0;
   const receiver = overrides.receiver || account;
   const callbackContract = overrides.callbackContract || { address: ethers.constants.AddressZero };
-  const uiFeeReceiver = overrides.uiFeeReceiver || { address: ethers.constants.AddressZero };
   const market = overrides.market || ethUsdMarket;
   const longTokenSwapPath = overrides.longTokenSwapPath || [];
   const shortTokenSwapPath = overrides.shortTokenSwapPath || [];
@@ -44,13 +40,9 @@ export async function createWithdrawal(fixture, overrides = {}) {
 
   await wnt.mint(withdrawalVault.address, executionFee);
 
-  const marketToken = await contractAt("MarketToken", market.marketToken);
-  await marketToken.connect(account).transfer(withdrawalVault.address, marketTokenAmount);
-
   const params = {
     receiver: receiver.address,
     callbackContract: callbackContract.address,
-    uiFeeReceiver: uiFeeReceiver.address,
     market: market.marketToken,
     longTokenSwapPath,
     shortTokenSwapPath,
@@ -72,6 +64,7 @@ export async function executeWithdrawal(fixture, overrides = {}) {
   const { reader, dataStore, withdrawalHandler, wnt, usdc } = fixture.contracts;
   const { gasUsageLabel } = overrides;
   const tokens = overrides.tokens || [wnt.address, usdc.address];
+  const tokenOracleTypes = overrides.tokenOracleTypes || [TOKEN_ORACLE_TYPES.DEFAULT, TOKEN_ORACLE_TYPES.DEFAULT];
   const precisions = overrides.precisions || [8, 18];
   const minPrices = overrides.minPrices || [expandDecimals(5000, 4), expandDecimals(1, 6)];
   const maxPrices = overrides.maxPrices || [expandDecimals(5000, 4), expandDecimals(1, 6)];
@@ -82,6 +75,7 @@ export async function executeWithdrawal(fixture, overrides = {}) {
     key: withdrawalKeys[0],
     oracleBlockNumber: withdrawal.numbers.updatedAtBlock,
     tokens,
+    tokenOracleTypes,
     precisions,
     minPrices,
     maxPrices,
@@ -89,30 +83,7 @@ export async function executeWithdrawal(fixture, overrides = {}) {
     gasUsageLabel,
   };
 
-  const txReceipt = await executeWithOracleParams(fixture, params);
-  const logs = parseLogs(fixture, txReceipt);
-
-  const cancellationReason = await getCancellationReason({
-    logs,
-    eventName: "WithdrawalCancelled",
-  });
-
-  if (cancellationReason) {
-    if (overrides.expectedCancellationReason) {
-      expect(cancellationReason.name).eq(overrides.expectedCancellationReason);
-    } else {
-      throw new Error(`Withdrawal was cancelled: ${getErrorString(cancellationReason)}`);
-    }
-  } else {
-    if (overrides.expectedCancellationReason) {
-      throw new Error(
-        `Withdrawal was not cancelled, expected cancellation with reason: ${overrides.expectedCancellationReason}`
-      );
-    }
-  }
-
-  const result = { txReceipt, logs };
-  return result;
+  await executeWithOracleParams(fixture, params);
 }
 
 export async function handleWithdrawal(fixture, overrides = {}) {

@@ -19,13 +19,6 @@ const func = createDeployFunction({
       "min oracle block confirmations"
     );
     await setUintIfDifferent(keys.MAX_ORACLE_PRICE_AGE, oracleConfig.maxOraclePriceAge, "max oracle price age");
-    await setUintIfDifferent(
-      keys.MAX_ORACLE_REF_PRICE_DEVIATION_FACTOR,
-      oracleConfig.maxRefPriceDeviationFactor,
-      "max ref price deviation factor"
-    );
-
-    // the Oracle contract requires the CONTROLLER to emit events
     await grantRoleIfNotGranted(deployedContract.address, "CONTROLLER", "oracle");
   },
 });

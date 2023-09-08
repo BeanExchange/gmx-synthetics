@@ -7,7 +7,6 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "../utils/Array.sol";
 import "../utils/Bits.sol";
 import "../price/Price.sol";
-import "../utils/Printer.sol";
 
 // @title OracleUtils
 // @dev Library for oracle functions
@@ -45,6 +44,8 @@ library OracleUtils {
     struct SimulatePricesParams {
         address[] primaryTokens;
         Price.Props[] primaryPrices;
+        address[] secondaryTokens;
+        Price.Props[] secondaryPrices;
     }
 
     struct ReportInfo {
@@ -79,6 +80,25 @@ library OracleUtils {
     uint256 public constant COMPACTED_PRICE_INDEX_BIT_LENGTH = 8;
     uint256 public constant COMPACTED_PRICE_INDEX_BITMASK = Bits.BITMASK_8;
 
+    error EmptyPrimaryPrice(address token);
+    error EmptySecondaryPrice(address token);
+    error EmptyLatestPrice(address token);
+    error EmptyCustomPrice(address token);
+
+    error EmptyCompactedPrice(uint256 index);
+    error EmptyCompactedBlockNumber(uint256 index);
+    error EmptyCompactedTimestamp(uint256 index);
+
+    error OracleBlockNumbersAreNotEqual(uint256[] oracleBlockNumbers, uint256 expectedBlockNumber);
+    error OracleBlockNumbersAreSmallerThanRequired(uint256[] oracleBlockNumbers, uint256 expectedBlockNumber);
+    error OracleBlockNumberNotWithinRange(
+        uint256[] minOracleBlockNumbers,
+        uint256[] maxOracleBlockNumbers,
+        uint256 blockNumber
+    );
+
+    error InvalidSignature(address recoveredSigner, address expectedSigner);
+
     function validateBlockNumberWithinRange(
         uint256[] memory minOracleBlockNumbers,
         uint256[] memory maxOracleBlockNumbers,
@@ -89,7 +109,7 @@ library OracleUtils {
                 maxOracleBlockNumbers,
                 blockNumber
         )) {
-            revert Errors.OracleBlockNumberNotWithinRange(
+            revertOracleBlockNumberNotWithinRange(
                 minOracleBlockNumbers,
                 maxOracleBlockNumbers,
                 blockNumber
@@ -126,7 +146,7 @@ library OracleUtils {
             "getUncompactedPrice"
         );
 
-        if (price == 0) { revert Errors.EmptyCompactedPrice(index); }
+        if (price == 0) { revert EmptyCompactedPrice(index); }
 
         return price;
     }
@@ -172,7 +192,7 @@ library OracleUtils {
     function getUncompactedOracleBlockNumbers(uint256[] memory compactedOracleBlockNumbers, uint256 length) internal pure returns (uint256[] memory) {
         uint256[] memory blockNumbers = new uint256[](length);
 
-        for (uint256 i; i < length; i++) {
+        for (uint256 i = 0; i < length; i++) {
             blockNumbers[i] = getUncompactedOracleBlockNumber(compactedOracleBlockNumbers, i);
         }
 
@@ -192,7 +212,7 @@ library OracleUtils {
             "getUncompactedOracleBlockNumber"
         );
 
-        if (blockNumber == 0) { revert Errors.EmptyCompactedBlockNumber(index); }
+        if (blockNumber == 0) { revert EmptyCompactedBlockNumber(index); }
 
         return blockNumber;
     }
@@ -202,7 +222,7 @@ library OracleUtils {
     // @param index the index to get the uncompacted oracle timestamp at
     // @return the uncompacted oracle timestamp
     function getUncompactedOracleTimestamp(uint256[] memory compactedOracleTimestamps, uint256 index) internal pure returns (uint256) {
-        uint256 timestamp = Array.getUncompactedValue(
+        uint256 blockNumber = Array.getUncompactedValue(
             compactedOracleTimestamps,
             index,
             COMPACTED_TIMESTAMP_BIT_LENGTH,
@@ -210,14 +230,12 @@ library OracleUtils {
             "getUncompactedOracleTimestamp"
         );
 
-        if (timestamp == 0) { revert Errors.EmptyCompactedTimestamp(index); }
+        if (blockNumber == 0) { revert EmptyCompactedTimestamp(index); }
 
-        return timestamp;
+        return blockNumber;
     }
 
     // @dev validate the signer of a price
-    // before calling this function, the expectedSigner should be validated to
-    // ensure that it is not the zero address
     // @param minOracleBlockNumber the min block number used for the signed message hash
     // @param maxOracleBlockNumber the max block number used for the signed message hash
     // @param oracleTimestamp the timestamp used for the signed message hash
@@ -229,14 +247,14 @@ library OracleUtils {
     // @param signature the signer's signature
     // @param expectedSigner the address of the expected signer
     function validateSigner(
-        bytes32 salt,
+        bytes32 SALT,
         ReportInfo memory info,
         bytes memory signature,
         address expectedSigner
     ) internal pure {
         bytes32 digest = ECDSA.toEthSignedMessageHash(
             keccak256(abi.encode(
-                salt,
+                SALT,
                 info.minOracleBlockNumber,
                 info.maxOracleBlockNumber,
                 info.oracleTimestamp,
@@ -251,8 +269,16 @@ library OracleUtils {
 
         address recoveredSigner = ECDSA.recover(digest, signature);
         if (recoveredSigner != expectedSigner) {
-            revert Errors.InvalidSignature(recoveredSigner, expectedSigner);
+            revert InvalidSignature(recoveredSigner, expectedSigner);
         }
+    }
+
+    function revertOracleBlockNumbersAreNotEqual(uint256[] memory oracleBlockNumbers, uint256 expectedBlockNumber) internal pure {
+        revert OracleBlockNumbersAreNotEqual(oracleBlockNumbers, expectedBlockNumber);
+    }
+
+    function revertOracleBlockNumbersAreSmallerThanRequired(uint256[] memory oracleBlockNumbers, uint256 expectedBlockNumber) internal pure {
+        revert OracleBlockNumbersAreSmallerThanRequired(oracleBlockNumbers, expectedBlockNumber);
     }
 
     function revertOracleBlockNumberNotWithinRange(
@@ -260,35 +286,23 @@ library OracleUtils {
         uint256[] memory maxOracleBlockNumbers,
         uint256 blockNumber
     ) internal pure {
-        revert Errors.OracleBlockNumberNotWithinRange(minOracleBlockNumbers, maxOracleBlockNumbers, blockNumber);
-    }
-
-    function isOracleError(bytes4 errorSelector) internal pure returns (bool) {
-        if (isOracleBlockNumberError(errorSelector)) {
-            return true;
-        }
-
-        if (isEmptyPriceError(errorSelector)) {
-            return true;
-        }
-
-        return false;
+        revert OracleBlockNumberNotWithinRange(minOracleBlockNumbers, maxOracleBlockNumbers, blockNumber);
     }
 
     function isEmptyPriceError(bytes4 errorSelector) internal pure returns (bool) {
-        if (errorSelector == Errors.EmptyPrimaryPrice.selector) {
+        if (errorSelector == EmptyPrimaryPrice.selector) {
             return true;
         }
 
-        return false;
-    }
-
-    function isOracleBlockNumberError(bytes4 errorSelector) internal pure returns (bool) {
-        if (errorSelector == Errors.OracleBlockNumbersAreSmallerThanRequired.selector) {
+        if (errorSelector == EmptySecondaryPrice.selector) {
             return true;
         }
 
-        if (errorSelector == Errors.OracleBlockNumberNotWithinRange.selector) {
+        if (errorSelector == EmptyLatestPrice.selector) {
+            return true;
+        }
+
+        if (errorSelector == EmptyCustomPrice.selector) {
             return true;
         }
 

@@ -5,7 +5,6 @@ const func = createDeployFunction({
   libraryNames: [
     "BaseOrderUtils",
     "MarketStoreUtils",
-    "MarketUtils",
     "OrderStoreUtils",
     "OrderEventUtils",
     "IncreaseOrderUtils",

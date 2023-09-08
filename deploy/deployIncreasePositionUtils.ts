@@ -10,6 +10,7 @@ const func = createDeployFunction({
     "PositionStoreUtils",
     "PositionEventUtils",
     "ReferralEventUtils",
+    "PositionPricingUtils",
   ],
 });
 
